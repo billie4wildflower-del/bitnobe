@@ -1,9 +1,9 @@
 "use client"
 
 import { FormEvent, useEffect, useState, useTransition } from "react"
-import { Banknote, CheckCircle2, LockKeyhole, MessageCircle, Search, Send, ShieldCheck, UnlockKeyhole, UserCog } from "lucide-react"
+import { Banknote, CheckCircle2, FileClock, LockKeyhole, MessageCircle, Search, Send, ShieldAlert, ShieldCheck, UnlockKeyhole, UserCog } from "lucide-react"
 
-import { getAdminCardApplications, getAdminConversation, getAdminDashboard, postBankCredit, postBankDebit, reviewCardApplication, revokeUserSessions, sendAdminSupportMessage, updateAdminUserControl, type AdminCardApplication, type AdminUser, type SupportMessage } from "@/app/actions/bank"
+import { getAdminAuditLog, getAdminCardApplications, getAdminConversation, getAdminDashboard, postBankCredit, postBankDebit, reviewCardApplication, revokeUserSessions, sendAdminSupportMessage, updateAdminUserControl, type AdminAuditEntry, type AdminCardApplication, type AdminUser, type SupportMessage } from "@/app/actions/bank"
 import { authClient } from "@/lib/auth-client"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -24,12 +24,15 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
   const [note, setNote] = useState("")
   const [adminNote, setAdminNote] = useState("")
   const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "suspended">("all")
+  const [statusFilter, setStatusFilter] = useState<"all" | AdminUser["status"]>("all")
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
   const [cardApplications, setCardApplications] = useState<AdminCardApplication[]>([])
   const [backgroundChecks, setBackgroundChecks] = useState<Record<number, "passed" | "failed">>({})
+  const [auditEntries, setAuditEntries] = useState<AdminAuditEntry[]>([])
+  const [riskScore, setRiskScore] = useState("0")
+  const [fraudFreeze, setFraudFreeze] = useState(false)
   const selectedUser = users.find((user) => user.id === selectedId)
   const filteredUsers = users.filter((user) => {
     const query = search.trim().toLowerCase()
@@ -38,7 +41,11 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
   })
 
   useEffect(() => {
-    if (selectedUser) setAdminNote(selectedUser.adminNote)
+    if (selectedUser) {
+      setAdminNote(selectedUser.adminNote)
+      setRiskScore(String(selectedUser.riskScore))
+      setFraudFreeze(selectedUser.fraudFreeze)
+    }
   }, [selectedId, selectedUser])
 
   useEffect(() => {
@@ -53,7 +60,10 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
     return () => { active = false; window.clearInterval(interval) }
   }, [selectedId])
 
-  useEffect(() => { void getAdminCardApplications().then(setCardApplications) }, [])
+  useEffect(() => {
+    void getAdminCardApplications().then(setCardApplications)
+    void getAdminAuditLog().then(setAuditEntries)
+  }, [])
 
   function submitReply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -98,14 +108,15 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
     })
   }
 
-  function saveUserControl(status: "active" | "suspended") {
+  function saveUserControl(status: AdminUser["status"]) {
     setError(null)
     setNotice(null)
     startTransition(async () => {
-      const result = await updateAdminUserControl({ userId: selectedId, status, adminNote })
+      const result = await updateAdminUserControl({ userId: selectedId, status, adminNote, riskScore: Number(riskScore), fraudFreeze })
       if (!result.ok) { setError(result.error); return }
-      setNotice(status === "suspended" ? "Member access suspended and sessions revoked." : "Member access restored.")
+      setNotice(status === "active" ? "Member access restored." : `Member status set to ${status}.`)
       setUsers(await getAdminDashboard())
+      setAuditEntries(await getAdminAuditLog(selectedId))
     })
   }
 
@@ -114,10 +125,11 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
     setError(null)
     setNotice(null)
     startTransition(async () => {
-      const result = await updateAdminUserControl({ userId: selectedId, status: selectedUser.status, adminNote })
+      const result = await updateAdminUserControl({ userId: selectedId, status: selectedUser.status, adminNote, riskScore: Number(riskScore), fraudFreeze })
       if (!result.ok) { setError(result.error); return }
       setNotice("Internal note saved.")
       setUsers(await getAdminDashboard())
+      setAuditEntries(await getAdminAuditLog(selectedId))
     })
   }
 
@@ -129,6 +141,7 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
       if (!result.ok) { setError(result.error); return }
       setNotice("All member sessions were revoked.")
       setUsers(await getAdminDashboard())
+      setAuditEntries(await getAdminAuditLog(selectedId))
     })
   }
 
@@ -164,9 +177,9 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
           <CardHeader><CardTitle>Members</CardTitle><CardDescription>Support activity and account access.</CardDescription></CardHeader>
           <CardContent className="space-y-3">
             <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search members" aria-label="Search members" className="pl-8" /></div>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm"><option value="all">All account statuses</option><option value="active">Active only</option><option value="suspended">Suspended only</option></select>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm"><option value="all">All account statuses</option><option value="active">Active only</option><option value="dormant">Dormant only</option><option value="restricted">Restricted only</option><option value="suspended">Suspended only</option><option value="closed">Closed only</option></select>
             <p className="text-xs text-muted-foreground">{filteredUsers.length} of {users.length} members</p>
-            {filteredUsers.map((user) => <button key={user.id} type="button" onClick={() => { setSelectedId(user.id); setError(null); setNotice(null) }} className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${selectedId === user.id ? "bg-primary/10" : "hover:bg-muted"}`}><Avatar><AvatarFallback>{initials(user.name)}</AvatarFallback></Avatar><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{user.name}</span><span className="block truncate text-xs text-muted-foreground">{user.email}</span></span><span className={`text-[11px] font-medium ${user.status === "suspended" ? "text-destructive" : "text-emerald-600"}`}>{user.status}</span>{user.unreadMessages > 0 && <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{user.unreadMessages}</span>}</button>)}
+            {filteredUsers.map((user) => <button key={user.id} type="button" onClick={() => { setSelectedId(user.id); setError(null); setNotice(null); void getAdminAuditLog(user.id).then(setAuditEntries) }} className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${selectedId === user.id ? "bg-primary/10" : "hover:bg-muted"}`}><Avatar><AvatarFallback>{initials(user.name)}</AvatarFallback></Avatar><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{user.name}</span><span className="block truncate text-xs text-muted-foreground">{user.email}</span></span><span className={`text-[11px] font-medium ${user.status === "active" ? "text-emerald-600" : "text-destructive"}`}>{user.status}</span>{user.unreadMessages > 0 && <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{user.unreadMessages}</span>}</button>)}
             {filteredUsers.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No matching members.</p>}
           </CardContent>
         </Card>
@@ -174,7 +187,8 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
         {selectedUser ? <div className="grid gap-4 xl:grid-cols-[1fr_20rem]">
           <Card className="min-w-0"><CardHeader><CardTitle className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-primary" />{selectedUser.name}<span className={`rounded-full px-2 py-0.5 text-xs font-medium ${selectedUser.status === "suspended" ? "bg-destructive/10 text-destructive" : "bg-emerald-500/10 text-emerald-700"}`}>{selectedUser.status}</span></CardTitle><CardDescription>{selectedUser.email} · Account {selectedUser.accountNumber ?? "not opened"}</CardDescription></CardHeader><CardContent><div className="min-h-72 max-h-[30rem] space-y-3 overflow-y-auto rounded-lg bg-muted/50 p-4" aria-live="polite">{messages.length === 0 ? <p className="py-20 text-center text-sm text-muted-foreground">No messages from this member.</p> : messages.map((message) => <div key={message.id} className={`flex ${message.sender === "bank" ? "justify-end" : "justify-start"}`}><div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${message.sender === "bank" ? "bg-primary text-primary-foreground" : "bg-card ring-1 ring-border"}`}><p>{message.body}</p><p className="mt-1 text-[11px] text-muted-foreground">{message.sender === "bank" ? "You" : selectedUser.name} · {new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</p></div></div>)}</div><form onSubmit={submitReply} className="mt-3 flex gap-2"><Input value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply to member" maxLength={2000} disabled={pending} aria-label="Reply to member" /><Button type="submit" size="icon" aria-label="Send reply" disabled={pending || !reply.trim()}><Send className="h-4 w-4" /></Button></form></CardContent></Card>
           <div className="space-y-4"><Card className="h-fit"><CardHeader><CardTitle className="flex items-center gap-2"><Banknote className="h-5 w-5 text-primary" />Account controls</CardTitle><CardDescription>Authorized balance operations for this member.</CardDescription></CardHeader><CardContent><div className="mb-4 rounded-lg bg-muted/50 p-3 text-sm">Current balance: <span className="font-semibold">${(selectedUser.balance / 100).toFixed(2)}</span></div><Input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Reason or note" maxLength={200} aria-label="Transaction note" disabled={pending} /><div className="mt-3 grid grid-cols-2 gap-2"><form onSubmit={submitCredit} className="space-y-2"><Input type="number" min="0.01" step="0.01" value={credit} onChange={(event) => setCredit(event.target.value)} placeholder="Credit USD" aria-label="Credit amount" disabled={pending} required /><Button className="w-full" type="submit" disabled={pending}><Banknote className="mr-2 h-4 w-4" />Credit</Button></form><form onSubmit={submitDebit} className="space-y-2"><Input type="number" min="0.01" step="0.01" value={debit} onChange={(event) => setDebit(event.target.value)} placeholder="Debit USD" aria-label="Debit amount" disabled={pending} required /><Button className="w-full" type="submit" variant="outline" disabled={pending}>Debit</Button></form></div>{notice && <p className="mt-3 flex items-center gap-1 text-xs text-emerald-600"><CheckCircle2 className="h-4 w-4" />{notice}</p>}{error && <p className="mt-3 text-xs text-destructive">{error}</p>}</CardContent></Card>
-          <Card><CardHeader><CardTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-primary" />Access controls</CardTitle><CardDescription>Changes are logged and enforced immediately.</CardDescription></CardHeader><CardContent className="space-y-3"><textarea value={adminNote} onChange={(event) => setAdminNote(event.target.value)} maxLength={500} placeholder="Internal admin note" aria-label="Internal admin note" disabled={pending} className="min-h-20 w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/50" /><Button variant="outline" className="w-full" onClick={saveAdminNote} disabled={pending}>Save internal note</Button><div className="grid grid-cols-2 gap-2"><Button variant={selectedUser.status === "active" ? "secondary" : "outline"} onClick={() => saveUserControl("active")} disabled={pending || selectedUser.status === "active"}><UnlockKeyhole className="mr-2 h-4 w-4" />Activate</Button><Button variant="destructive" onClick={() => saveUserControl("suspended")} disabled={pending || selectedUser.status === "suspended"}><LockKeyhole className="mr-2 h-4 w-4" />Suspend</Button></div><Button variant="outline" className="w-full" onClick={revokeSessions} disabled={pending}>Revoke all sessions</Button>{selectedUser.controlUpdatedAt && <p className="text-xs text-muted-foreground">Last control change {new Date(selectedUser.controlUpdatedAt).toLocaleString()}</p>}</CardContent></Card></div>
+          <Card><CardHeader><CardTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-primary" />Account and fraud controls</CardTitle><CardDescription>Status changes, risk review, and session controls are audited.</CardDescription></CardHeader><CardContent className="space-y-3"><label className="text-xs font-medium">Account status<select value={selectedUser.status} onChange={(event) => saveUserControl(event.target.value as AdminUser["status"])} disabled={pending} className="mt-1 h-9 w-full rounded-lg border border-input bg-background px-2 text-sm"><option value="active">Active</option><option value="dormant">Dormant</option><option value="restricted">Restricted</option><option value="suspended">Suspended</option><option value="closed">Closed</option></select></label><div><div className="flex items-center justify-between text-xs font-medium"><label htmlFor="risk-score">Risk score</label><span>{riskScore}/100</span></div><input id="risk-score" type="range" min="0" max="100" value={riskScore} onChange={(event) => setRiskScore(event.target.value)} className="mt-2 w-full accent-primary" disabled={pending} /><div className="flex justify-between text-[11px] text-muted-foreground"><span>Low</span><span>High</span></div></div><label className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><input type="checkbox" checked={fraudFreeze} onChange={(event) => setFraudFreeze(event.target.checked)} disabled={pending} /><ShieldAlert className="h-4 w-4" />Place temporary fraud freeze</label><textarea value={adminNote} onChange={(event) => setAdminNote(event.target.value)} maxLength={500} placeholder="Internal admin note" aria-label="Internal admin note" disabled={pending} className="min-h-20 w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/50" /><Button variant="outline" className="w-full" onClick={saveAdminNote} disabled={pending}>Save controls and note</Button><Button variant="outline" className="w-full" onClick={revokeSessions} disabled={pending}><LockKeyhole className="mr-2 h-4 w-4" />Revoke all sessions</Button>{selectedUser.controlUpdatedAt && <p className="text-xs text-muted-foreground">Last control change {new Date(selectedUser.controlUpdatedAt).toLocaleString()}</p>}</CardContent></Card>
+          <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileClock className="h-5 w-5 text-primary" />Audit trail</CardTitle><CardDescription>Recent administrative actions for this member.</CardDescription></CardHeader><CardContent className="space-y-2">{auditEntries.length === 0 ? <p className="text-sm text-muted-foreground">No actions recorded yet.</p> : auditEntries.slice(0, 8).map((entry) => <div key={entry.id} className="border-b pb-2 text-xs last:border-0"><p className="font-medium">{entry.action.replaceAll("_", " ")}</p><p className="text-muted-foreground">{entry.adminEmail} · {new Date(entry.createdAt).toLocaleString()}</p></div>)}</CardContent></Card></div>
         </div> : <Card><CardContent className="py-20 text-center text-sm text-muted-foreground">Select a member to begin.</CardContent></Card>}
       </div>
     </main>

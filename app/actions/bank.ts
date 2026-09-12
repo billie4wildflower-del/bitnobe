@@ -13,11 +13,11 @@ async function getSessionUser() {
   if (!session?.user) throw new Error("Unauthorized")
   await ensureAdminControlsTable()
   await ensureBankingFeaturesTables()
-  const control = await pool.query<{ status: "active" | "suspended" }>(
-    `SELECT status FROM admin_user_control WHERE user_id = $1`,
+  const control = await pool.query<{ status: "active" | "dormant" | "restricted" | "closed" | "suspended"; fraud_freeze: boolean }>(
+    `SELECT status, fraud_freeze FROM admin_user_control WHERE user_id = $1`,
     [session.user.id],
   )
-  if (control.rows[0]?.status === "suspended") throw new Error("Account suspended")
+  if (control.rows[0]?.status === "suspended" || control.rows[0]?.status === "closed") throw new Error("Account unavailable")
   return session.user
 }
 
@@ -335,12 +335,36 @@ async function ensureAdminControlsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_user_control (
       user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'dormant', 'restricted', 'closed', 'suspended')),
       admin_note TEXT NOT NULL DEFAULT '',
+      risk_score INTEGER NOT NULL DEFAULT 0 CHECK (risk_score BETWEEN 0 AND 100),
+      fraud_freeze BOOLEAN NOT NULL DEFAULT FALSE,
       updated_by TEXT,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  await pool.query(`ALTER TABLE admin_user_control DROP CONSTRAINT IF EXISTS admin_user_control_status_check`)
+  await pool.query(`ALTER TABLE admin_user_control ADD CONSTRAINT admin_user_control_status_check CHECK (status IN ('active', 'dormant', 'restricted', 'closed', 'suspended'))`)
+  await pool.query(`ALTER TABLE admin_user_control ADD COLUMN IF NOT EXISTS risk_score INTEGER NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE admin_user_control ADD COLUMN IF NOT EXISTS fraud_freeze BOOLEAN NOT NULL DEFAULT FALSE`)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_action_log (
+      id BIGSERIAL PRIMARY KEY,
+      admin_user_id TEXT NOT NULL REFERENCES "user"(id),
+      target_user_id TEXT REFERENCES "user"(id),
+      action TEXT NOT NULL,
+      details JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+}
+
+async function logAdminAction(adminUserId: string, action: string, targetUserId: string | null, details: Record<string, unknown> = {}) {
+  await ensureAdminControlsTable()
+  await pool.query(
+    `INSERT INTO admin_action_log (admin_user_id, target_user_id, action, details) VALUES ($1, $2, $3, $4::jsonb)`,
+    [adminUserId, targetUserId, action, JSON.stringify(details)],
+  )
 }
 
 export type SupportMessage = {
@@ -391,8 +415,10 @@ export type AdminUser = {
   balance: number
   lastMessageAt: Date | null
   unreadMessages: number
-  status: "active" | "suspended"
+  status: "active" | "dormant" | "restricted" | "closed" | "suspended"
   adminNote: string
+  riskScore: number
+  fraudFreeze: boolean
   controlUpdatedAt: Date | null
 }
 
@@ -405,6 +431,8 @@ export async function getAdminDashboard() {
       ba."accountNumber", COALESCE(ba.balance, 0)::integer AS balance,
       COALESCE(auc.status, 'active') AS status,
       COALESCE(auc.admin_note, '') AS "adminNote",
+      COALESCE(auc.risk_score, 0)::integer AS "riskScore",
+      COALESCE(auc.fraud_freeze, false) AS "fraudFreeze",
       auc.updated_at AS "controlUpdatedAt",
       MAX(sm.created_at) AS "lastMessageAt",
       COUNT(sm.id) FILTER (
@@ -418,7 +446,7 @@ export async function getAdminDashboard() {
     LEFT JOIN bank_account ba ON ba."userId" = u.id
     LEFT JOIN admin_user_control auc ON auc.user_id = u.id
     LEFT JOIN support_message sm ON sm.user_id = u.id
-    GROUP BY u.id, ba."accountNumber", ba.balance, auc.status, auc.admin_note, auc.updated_at
+    GROUP BY u.id, ba."accountNumber", ba.balance, auc.status, auc.admin_note, auc.risk_score, auc.fraud_freeze, auc.updated_at
     ORDER BY MAX(sm.created_at) DESC NULLS LAST, u.name ASC
   `)
   return result.rows
@@ -426,24 +454,31 @@ export async function getAdminDashboard() {
 
 export async function updateAdminUserControl(input: {
   userId: string
-  status: "active" | "suspended"
+  status: "active" | "dormant" | "restricted" | "closed" | "suspended"
   adminNote: string
+  riskScore?: number
+  fraudFreeze?: boolean
 }) {
   const admin = await requireAdmin()
   if (!input.userId || input.userId === admin.id) return { ok: false as const, error: "You cannot change your own admin access." }
-  if (!['active', 'suspended'].includes(input.status)) return { ok: false as const, error: "Choose a valid account status." }
+  if (!['active', 'dormant', 'restricted', 'closed', 'suspended'].includes(input.status)) return { ok: false as const, error: "Choose a valid account status." }
+  if (input.riskScore !== undefined && (!Number.isInteger(input.riskScore) || input.riskScore < 0 || input.riskScore > 100)) return { ok: false as const, error: "Risk score must be between 0 and 100." }
   const adminNote = input.adminNote.trim().slice(0, 500)
+  const riskScore = input.riskScore ?? 0
+  const fraudFreeze = input.fraudFreeze ?? false
   await ensureAdminControlsTable()
   await pool.query(
-    `INSERT INTO admin_user_control (user_id, status, admin_note, updated_by)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO admin_user_control (user_id, status, admin_note, risk_score, fraud_freeze, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (user_id) DO UPDATE SET status = EXCLUDED.status, admin_note = EXCLUDED.admin_note,
+       risk_score = EXCLUDED.risk_score, fraud_freeze = EXCLUDED.fraud_freeze,
        updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-    [input.userId, input.status, adminNote, admin.email],
+    [input.userId, input.status, adminNote, riskScore, fraudFreeze, admin.email],
   )
-  if (input.status === "suspended") {
+  if (input.status === "suspended" || input.status === "closed" || input.fraudFreeze) {
     await pool.query(`DELETE FROM session WHERE "userId" = $1`, [input.userId])
   }
+  await logAdminAction(admin.id, "user_control_updated", input.userId, { status: input.status, riskScore, fraudFreeze, note: adminNote })
   revalidatePath("/admin")
   revalidatePath("/")
   return { ok: true as const }
@@ -460,6 +495,7 @@ export async function revokeUserSessions(userId: string) {
      ON CONFLICT (user_id) DO UPDATE SET updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
     [userId, admin.email],
   )
+  await logAdminAction(admin.id, "sessions_revoked", userId)
   revalidatePath("/admin")
   return { ok: true as const }
 }
@@ -476,7 +512,7 @@ export async function getAdminConversation(userId: string) {
 }
 
 export async function sendAdminSupportMessage(userId: string, body: string) {
-  await requireAdmin()
+  const admin = await requireAdmin()
   const message = body.trim()
   if (!userId || !message) return { ok: false as const, error: "Choose a member and write a message." }
   if (message.length > 2000) return { ok: false as const, error: "Messages must be 2,000 characters or less." }
@@ -486,6 +522,7 @@ export async function sendAdminSupportMessage(userId: string, body: string) {
      RETURNING id, sender, body, created_at AS "createdAt"`,
     [userId, message],
   )
+  await logAdminAction(admin.id, "support_message_sent", userId, { messageId: result.rows[0].id })
   revalidatePath("/admin")
   return { ok: true as const, message: result.rows[0] }
 }
@@ -517,6 +554,7 @@ export async function postBankCredit(userId: string, amountCents: number, note: 
     if (error instanceof Error && error.message === "ACCOUNT_NOT_FOUND") return { ok: false as const, error: "Member account not found." }
     return { ok: false as const, error: "Bank credit could not be posted." }
   }
+  await logAdminAction(admin.id, "balance_credited", userId, { amountCents, note: note.trim().slice(0, 200) })
   revalidatePath("/admin")
   return { ok: true as const }
 }
@@ -543,8 +581,33 @@ export async function postBankDebit(userId: string, amountCents: number, note: s
     if (error instanceof Error && error.message === "INSUFFICIENT_FUNDS") return { ok: false as const, error: "Debit exceeds the available balance." }
     return { ok: false as const, error: "Bank debit could not be posted." }
   }
+  await logAdminAction(admin.id, "balance_debited", userId, { amountCents, note: note.trim().slice(0, 200) })
   revalidatePath("/admin")
   return { ok: true as const }
+}
+
+export type AdminAuditEntry = {
+  id: string
+  action: string
+  adminEmail: string
+  targetName: string | null
+  details: Record<string, unknown>
+  createdAt: Date
+}
+
+export async function getAdminAuditLog(userId?: string) {
+  await requireAdmin()
+  await ensureAdminControlsTable()
+  const result = await pool.query<AdminAuditEntry>(
+    `SELECT aal.id::text, aal.action, admin.email AS "adminEmail", target.name AS "targetName", aal.details, aal.created_at AS "createdAt"
+     FROM admin_action_log aal
+     JOIN "user" admin ON admin.id = aal.admin_user_id
+     LEFT JOIN "user" target ON target.id = aal.target_user_id
+     WHERE ($1::text IS NULL OR aal.target_user_id = $1)
+     ORDER BY aal.created_at DESC LIMIT 100`,
+    [userId ?? null],
+  )
+  return result.rows
 }
 
 // Atomic transfer between two registered users.
@@ -569,6 +632,13 @@ export async function transfer(input: { toUserId?: string; recipientIdentifier?:
 
   if (!toUserId || toUserId === sessionUser.id) {
     return { ok: false as const, error: "Choose a valid recipient." }
+  }
+  const senderControl = await pool.query<{ status: string; fraud_freeze: boolean }>(
+    `SELECT status, fraud_freeze FROM admin_user_control WHERE user_id = $1`,
+    [sessionUser.id],
+  )
+  if (senderControl.rows[0]?.status === "restricted" || senderControl.rows[0]?.fraud_freeze) {
+    return { ok: false as const, error: "Transfers are temporarily restricted on this account. Contact support." }
   }
   if (!Number.isInteger(amountCents) || amountCents <= 0) {
     return { ok: false as const, error: "Enter a valid amount." }
