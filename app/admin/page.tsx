@@ -12,7 +12,7 @@ export default async function AdminPage() {
 
 	const session = await auth.api.getSession({ headers: await headers() })
 	if (!session?.user) redirect("/sign-in?next=/admin")
-	if (!isAdminEmail(session.user.email)) {
+	if (!getAdminRole(session.user.email) && !isAdminEmail(session.user.email)) {
 		return (
 			<main className="flex min-h-screen items-center justify-center bg-background px-4">
 				<Card className="w-full max-w-md">
