@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 import { headers } from "next/headers"
 
 import { auth } from "@/lib/auth"
-import { getRegisteredUsers, getSupportMessages } from "@/app/actions/bank"
+import { getSupportMessages } from "@/app/actions/bank"
 import { SupportPageClient } from "@/components/support-page-client"
 import { DatabaseStatus } from "@/components/database-status"
 
@@ -17,17 +17,16 @@ export default async function SupportPage() {
   }
   if (!session?.user) redirect("/sign-in")
 
-  let users
   let messages
   try {
-    ;[users, messages] = await Promise.all([getRegisteredUsers(), getSupportMessages()])
+    messages = await getSupportMessages()
   } catch {
     return <DatabaseStatus />
   }
 
   return (
     <div className="min-h-screen bg-background">
-      <SupportPageClient name={session.user.name} email={session.user.email} users={users} messages={messages} />
+      <SupportPageClient name={session.user.name} email={session.user.email} messages={messages} />
     </div>
   )
 }

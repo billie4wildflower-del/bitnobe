@@ -2,6 +2,14 @@ import { betterAuth } from "better-auth"
 import { nextCookies } from "better-auth/next-js"
 import { Pool } from "pg"
 
+export function isAdminEmail(email: string) {
+  const allowedEmails = (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+  return allowedEmails.includes(email.trim().toLowerCase())
+}
+
 function resolveBaseURL() {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`

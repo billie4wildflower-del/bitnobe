@@ -6,11 +6,18 @@ import { bankAccount, bankTransaction, user } from "@/lib/db/schema"
 import { and, desc, eq, ne, or, sql } from "drizzle-orm"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
+import { isAdminEmail } from "@/lib/auth"
 
 async function getSessionUser() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) throw new Error("Unauthorized")
   return session.user
+}
+
+async function requireAdmin() {
+  const sessionUser = await getSessionUser()
+  if (!isAdminEmail(sessionUser.email)) throw new Error("Forbidden")
+  return sessionUser
 }
 
 function generateAccountNumber(): string {
@@ -137,6 +144,98 @@ export async function sendSupportMessage(body: string) {
   )
   revalidatePath("/support")
   return { ok: true as const, message: result.rows[0] }
+}
+
+export type AdminUser = {
+  id: string
+  name: string
+  email: string
+  image: string | null
+  createdAt: Date
+  accountNumber: string | null
+  balance: number
+  lastMessageAt: Date | null
+  unreadMessages: number
+}
+
+export async function getAdminDashboard() {
+  await requireAdmin()
+  await ensureSupportMessagesTable()
+  const result = await pool.query<AdminUser>(`
+    SELECT u.id, u.name, u.email, u.image, u."createdAt",
+      ba."accountNumber", COALESCE(ba.balance, 0)::integer AS balance,
+      MAX(sm.created_at) AS "lastMessageAt",
+      COUNT(sm.id) FILTER (
+        WHERE sm.sender = 'member'
+          AND sm.created_at > COALESCE(
+            (SELECT MAX(sm2.created_at) FROM support_message sm2 WHERE sm2.user_id = u.id AND sm2.sender = 'bank'),
+            'epoch'::timestamptz
+          )
+      )::integer AS "unreadMessages"
+    FROM "user" u
+    LEFT JOIN bank_account ba ON ba."userId" = u.id
+    LEFT JOIN support_message sm ON sm.user_id = u.id
+    GROUP BY u.id, ba."accountNumber", ba.balance
+    ORDER BY MAX(sm.created_at) DESC NULLS LAST, u.name ASC
+  `)
+  return result.rows
+}
+
+export async function getAdminConversation(userId: string) {
+  await requireAdmin()
+  await ensureSupportMessagesTable()
+  const result = await pool.query<SupportMessage>(
+    `SELECT id, sender, body, created_at AS "createdAt"
+     FROM support_message WHERE user_id = $1 ORDER BY created_at ASC LIMIT 200`,
+    [userId],
+  )
+  return result.rows
+}
+
+export async function sendAdminSupportMessage(userId: string, body: string) {
+  await requireAdmin()
+  const message = body.trim()
+  if (!userId || !message) return { ok: false as const, error: "Choose a member and write a message." }
+  if (message.length > 2000) return { ok: false as const, error: "Messages must be 2,000 characters or less." }
+  await ensureSupportMessagesTable()
+  const result = await pool.query<SupportMessage>(
+    `INSERT INTO support_message (user_id, sender, body) VALUES ($1, 'bank', $2)
+     RETURNING id, sender, body, created_at AS "createdAt"`,
+    [userId, message],
+  )
+  revalidatePath("/admin")
+  return { ok: true as const, message: result.rows[0] }
+}
+
+export async function postBankCredit(userId: string, amountCents: number, note: string) {
+  const admin = await requireAdmin()
+  if (!userId || !Number.isInteger(amountCents) || amountCents <= 0) {
+    return { ok: false as const, error: "Enter a valid credit amount." }
+  }
+  if (amountCents > 100_000_00) return { ok: false as const, error: "Credits are limited to $100,000 per operation." }
+  try {
+    await db.transaction(async (tx) => {
+      const [recipient] = await tx.select().from(bankAccount).where(eq(bankAccount.userId, userId)).for("update")
+      if (!recipient) throw new Error("ACCOUNT_NOT_FOUND")
+      const [recipientUser] = await tx.select({ name: user.name }).from(user).where(eq(user.id, userId)).limit(1)
+      await tx.update(bankAccount).set({ balance: sql`${bankAccount.balance} + ${amountCents}` }).where(eq(bankAccount.userId, userId))
+      await tx.insert(bankTransaction).values({
+        fromUserId: "bank",
+        toUserId: userId,
+        fromName: "BitNobe Bank Operations",
+        toName: recipientUser?.name ?? "Member",
+        fromAccountNumber: "BANK",
+        toAccountNumber: recipient.accountNumber,
+        amount: amountCents,
+        note: note.trim().slice(0, 200) || `Authorized by ${admin.email}`,
+      })
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === "ACCOUNT_NOT_FOUND") return { ok: false as const, error: "Member account not found." }
+    return { ok: false as const, error: "Bank credit could not be posted." }
+  }
+  revalidatePath("/admin")
+  return { ok: true as const }
 }
 
 // Atomic transfer between two registered users.
