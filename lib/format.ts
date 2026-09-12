@@ -21,9 +21,9 @@ export function parseDollarsToCents(value: string): number | null {
 export function formatDate(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date
   return (
-    d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) +
     " at " +
-    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" })
   )
 }
 
