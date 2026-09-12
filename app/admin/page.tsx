@@ -30,6 +30,16 @@ export default async function AdminPage() {
 		const users = await getAdminDashboard()
 		return <AdminPageClient name={session.user.name} email={session.user.email} initialUsers={users} />
 	} catch {
-		redirect("/")
+		return (
+			<main className="flex min-h-screen items-center justify-center bg-background px-4">
+				<Card className="w-full max-w-md">
+					<CardHeader><CardTitle>Operations console unavailable</CardTitle></CardHeader>
+					<CardContent className="space-y-3 text-sm text-muted-foreground">
+						<p>Your administrator access was recognized, but the operations data could not be loaded.</p>
+						<p>Check the database connection and redeploy after the environment variables are available.</p>
+					</CardContent>
+				</Card>
+			</main>
+		)
 	}
 }

@@ -383,7 +383,7 @@ export async function getAdminDashboard() {
     LEFT JOIN bank_account ba ON ba."userId" = u.id
     LEFT JOIN admin_user_control auc ON auc.user_id = u.id
     LEFT JOIN support_message sm ON sm.user_id = u.id
-    GROUP BY u.id, ba."accountNumber", ba.balance
+    GROUP BY u.id, ba."accountNumber", ba.balance, auc.status, auc.admin_note, auc.updated_at
     ORDER BY MAX(sm.created_at) DESC NULLS LAST, u.name ASC
   `)
   return result.rows
