@@ -131,6 +131,9 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
       <p className="mt-6 text-center text-xs text-muted-foreground text-balance">
         For authorized members only. All transfers are recorded and auditable.
       </p>
+      <p className="mt-3 text-center text-xs text-muted-foreground">
+        Looking for business banking? <Link href="/business-banking" className="font-medium text-primary hover:underline">Explore BitNobe for business</Link>
+      </p>
     </div>
   )
 }
