@@ -27,6 +27,23 @@ export function formatDate(date: Date | string): string {
   )
 }
 
+export function formatDateTime(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date
+  return d.toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  })
+}
+
+export function formatDateOnly(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date
+  return d.toLocaleDateString("en-US", {
+    dateStyle: "long",
+    timeZone: "UTC",
+  })
+}
+
 export function maskAccount(accountNumber: string): string {
   return "••••" + accountNumber.slice(-4)
 }

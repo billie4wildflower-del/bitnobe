@@ -77,7 +77,7 @@ export async function getAccountSummary() {
       balance: acct.balance,
     },
     transactions: txns,
-    isAdmin: isAdminEmail(sessionUser.email),
+    isAdmin: Boolean(getAdminRole(sessionUser.email) || isAdminEmail(sessionUser.email)),
   }
 }
 
@@ -98,7 +98,7 @@ export async function getProfile() {
       balance: acct.balance,
       openedAt: acct.createdAt,
     },
-    isAdmin: isAdminEmail(sessionUser.email),
+    isAdmin: Boolean(getAdminRole(sessionUser.email) || isAdminEmail(sessionUser.email)),
   }
 }
 

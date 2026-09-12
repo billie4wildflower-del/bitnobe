@@ -19,7 +19,7 @@ export default async function AdminPage() {
 					<CardHeader><CardTitle>Operations access required</CardTitle></CardHeader>
 					<CardContent className="space-y-3 text-sm text-muted-foreground">
 						<p>{session.user.email} is signed in, but is not configured as an administrator.</p>
-						<p>An administrator must add this email to the deployed <code className="rounded bg-muted px-1">ADMIN_EMAILS</code> environment variable before access is granted.</p>
+						<p>Add this email to one of the deployed role variables: <code className="rounded bg-muted px-1">ADMIN_EMAILS</code>, <code className="rounded bg-muted px-1">ADMIN_SUPPORT_EMAILS</code>, <code className="rounded bg-muted px-1">ADMIN_MANAGER_EMAILS</code>, or <code className="rounded bg-muted px-1">ADMIN_ENGINEERING_EMAILS</code>.</p>
 					</CardContent>
 				</Card>
 			</main>

@@ -7,6 +7,7 @@ import { getSupportMessages, sendSupportMessage, type SupportMessage } from "@/a
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { formatDateTime } from "@/lib/format"
 
 export function SupportDirectory({ initialMessages }: { initialMessages: SupportMessage[] }) {
   const [messages, setMessages] = useState(initialMessages)
@@ -58,7 +59,7 @@ export function SupportDirectory({ initialMessages }: { initialMessages: Support
               <div key={message.id} className={`flex ${message.sender === "member" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${message.sender === "member" ? "bg-primary text-primary-foreground" : "bg-card ring-1 ring-border"}`}>
                   <p>{message.body}</p>
-                  <p className={`mt-1 text-[11px] ${message.sender === "member" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{message.sender === "member" ? "You" : "BitNobe support"} · {new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</p>
+                  <p className={`mt-1 text-[11px] ${message.sender === "member" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{message.sender === "member" ? "You" : "BitNobe support"} · {formatDateTime(message.createdAt)}</p>
                 </div>
               </div>
             ))}

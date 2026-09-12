@@ -22,6 +22,24 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Deployment configuration
+
+Set these environment variables in v0/Vercel before using authenticated or administrative features:
+
+```env
+DATABASE_URL=postgres://...
+BETTER_AUTH_SECRET=replace-with-a-long-random-secret
+BETTER_AUTH_URL=https://your-deployment.example
+ADMIN_EMAILS=manager@example.com
+ADMIN_SUPPORT_EMAILS=support@example.com
+ADMIN_MANAGER_EMAILS=manager@example.com
+ADMIN_ENGINEERING_EMAILS=engineering@example.com
+NEXT_PUBLIC_BUSINESS_MOBILE_APP_URL=https://your-app-release.example/mobile
+NEXT_PUBLIC_BUSINESS_DESKTOP_DOWNLOAD_URL=https://your-app-release.example/desktop
+```
+
+`ADMIN_EMAILS` remains the legacy manager fallback. Support agents can view and respond to members; manager and engineering roles can perform account, security, balance, and transaction operations.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 ## Learn More
