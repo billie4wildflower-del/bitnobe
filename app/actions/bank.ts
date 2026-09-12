@@ -6,7 +6,7 @@ import { bankAccount, bankTransaction, user } from "@/lib/db/schema"
 import { and, desc, eq, ne, or, sql } from "drizzle-orm"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
-import { isAdminEmail } from "@/lib/auth"
+import { getAdminRole, isAdminEmail, type AdminRole } from "@/lib/auth"
 
 async function getSessionUser() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -23,7 +23,15 @@ async function getSessionUser() {
 
 async function requireAdmin() {
   const sessionUser = await getSessionUser()
-  if (!isAdminEmail(sessionUser.email)) throw new Error("Forbidden")
+  if (!getAdminRole(sessionUser.email) && !isAdminEmail(sessionUser.email)) throw new Error("Forbidden")
+  return sessionUser
+}
+
+async function requireAdminRole(requiredRole: AdminRole) {
+  const sessionUser = await requireAdmin()
+  const role = getAdminRole(sessionUser.email) ?? "manager"
+  const levels: Record<AdminRole, number> = { support: 1, manager: 2, engineering: 3 }
+  if (levels[role] < levels[requiredRole]) throw new Error("Insufficient administrative permission")
   return sessionUser
 }
 
@@ -292,7 +300,7 @@ export async function getAdminCardApplications() {
 }
 
 export async function reviewCardApplication(input: { applicationId: number; decision: "approve" | "decline"; backgroundCheck: "passed" | "failed"; adminNote: string }) {
-  const admin = await requireAdmin()
+  const admin = await requireAdminRole("manager")
   if (!Number.isInteger(input.applicationId)) return { ok: false as const, error: "Choose a valid application." }
   if (input.decision === "approve" && input.backgroundCheck !== "passed") return { ok: false as const, error: "A credit card requires a passed background check before approval." }
   await ensureBankingFeaturesTables()
@@ -356,6 +364,40 @@ async function ensureAdminControlsTable() {
       details JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_user_profile (
+      user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+      legal_name TEXT NOT NULL DEFAULT '',
+      date_of_birth DATE,
+      residential_address TEXT NOT NULL DEFAULT '',
+      mailing_address TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      tax_id_last4 TEXT NOT NULL DEFAULT '',
+      employment_profile TEXT NOT NULL DEFAULT '',
+      kyc_status TEXT NOT NULL DEFAULT 'not_started' CHECK (kyc_status IN ('not_started', 'pending', 'verified', 'rejected')),
+      kyc_document_note TEXT NOT NULL DEFAULT '',
+      marketing_opt_in BOOLEAN NOT NULL DEFAULT FALSE,
+      alert_opt_in BOOLEAN NOT NULL DEFAULT TRUE,
+      updated_by TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS admin_security_event (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '',
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS admin_transaction_action (
+      id BIGSERIAL PRIMARY KEY,
+      transaction_id INTEGER NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('reversal_requested', 'reversed', 'recalled', 'fee_refunded')),
+      note TEXT NOT NULL DEFAULT '',
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `)
 }
 
@@ -459,7 +501,7 @@ export async function updateAdminUserControl(input: {
   riskScore?: number
   fraudFreeze?: boolean
 }) {
-  const admin = await requireAdmin()
+  const admin = await requireAdminRole("manager")
   if (!input.userId || input.userId === admin.id) return { ok: false as const, error: "You cannot change your own admin access." }
   if (!['active', 'dormant', 'restricted', 'closed', 'suspended'].includes(input.status)) return { ok: false as const, error: "Choose a valid account status." }
   if (input.riskScore !== undefined && (!Number.isInteger(input.riskScore) || input.riskScore < 0 || input.riskScore > 100)) return { ok: false as const, error: "Risk score must be between 0 and 100." }
@@ -485,7 +527,7 @@ export async function updateAdminUserControl(input: {
 }
 
 export async function revokeUserSessions(userId: string) {
-  const admin = await requireAdmin()
+  const admin = await requireAdminRole("manager")
   if (!userId || userId === admin.id) return { ok: false as const, error: "You cannot revoke your own admin sessions." }
   await pool.query(`DELETE FROM session WHERE "userId" = $1`, [userId])
   await ensureAdminControlsTable()
@@ -528,7 +570,7 @@ export async function sendAdminSupportMessage(userId: string, body: string) {
 }
 
 export async function postBankCredit(userId: string, amountCents: number, note: string) {
-  const admin = await requireAdmin()
+  const admin = await requireAdminRole("manager")
   if (!userId || !Number.isInteger(amountCents) || amountCents <= 0) {
     return { ok: false as const, error: "Enter a valid credit amount." }
   }
@@ -560,7 +602,7 @@ export async function postBankCredit(userId: string, amountCents: number, note: 
 }
 
 export async function postBankDebit(userId: string, amountCents: number, note: string) {
-  const admin = await requireAdmin()
+  const admin = await requireAdminRole("manager")
   if (!userId || !Number.isInteger(amountCents) || amountCents <= 0) return { ok: false as const, error: "Enter a valid debit amount." }
   if (amountCents > 100_000_00) return { ok: false as const, error: "Debits are limited to $100,000 per operation." }
   try {
@@ -593,6 +635,125 @@ export type AdminAuditEntry = {
   targetName: string | null
   details: Record<string, unknown>
   createdAt: Date
+}
+
+export type AdminUserProfile = {
+  userId: string
+  legalName: string
+  dateOfBirth: string | null
+  residentialAddress: string
+  mailingAddress: string
+  phone: string
+  taxIdLast4: string
+  employmentProfile: string
+  kycStatus: "not_started" | "pending" | "verified" | "rejected"
+  kycDocumentNote: string
+  marketingOptIn: boolean
+  alertOptIn: boolean
+}
+
+export type AdminSession = { id: string; userAgent: string | null; ipAddress: string | null; createdAt: Date; expiresAt: Date }
+
+export async function getAdminUserProfile(userId: string) {
+  await requireAdmin()
+  await ensureAdminControlsTable()
+  const result = await pool.query<AdminUserProfile>(
+    `SELECT user_id AS "userId", legal_name AS "legalName", date_of_birth AS "dateOfBirth", residential_address AS "residentialAddress", mailing_address AS "mailingAddress", phone, tax_id_last4 AS "taxIdLast4", employment_profile AS "employmentProfile", kyc_status AS "kycStatus", kyc_document_note AS "kycDocumentNote", marketing_opt_in AS "marketingOptIn", alert_opt_in AS "alertOptIn" FROM admin_user_profile WHERE user_id = $1`,
+    [userId],
+  )
+  return result.rows[0] ?? { userId, legalName: "", dateOfBirth: null, residentialAddress: "", mailingAddress: "", phone: "", taxIdLast4: "", employmentProfile: "", kycStatus: "not_started" as const, kycDocumentNote: "", marketingOptIn: false, alertOptIn: true }
+}
+
+export async function updateAdminUserProfile(input: Omit<AdminUserProfile, "userId"> & { userId: string }) {
+  const admin = await requireAdminRole("manager")
+  if (!input.userId || !["not_started", "pending", "verified", "rejected"].includes(input.kycStatus)) return { ok: false as const, error: "Enter valid profile and KYC details." }
+  await ensureAdminControlsTable()
+  await pool.query(
+    `INSERT INTO admin_user_profile (user_id, legal_name, date_of_birth, residential_address, mailing_address, phone, tax_id_last4, employment_profile, kyc_status, kyc_document_note, marketing_opt_in, alert_opt_in, updated_by)
+     VALUES ($1, $2, NULLIF($3, '')::date, $4, $5, $6, RIGHT($7, 4), $8, $9, $10, $11, $12, $13)
+     ON CONFLICT (user_id) DO UPDATE SET legal_name = EXCLUDED.legal_name, date_of_birth = EXCLUDED.date_of_birth, residential_address = EXCLUDED.residential_address, mailing_address = EXCLUDED.mailing_address, phone = EXCLUDED.phone, tax_id_last4 = EXCLUDED.tax_id_last4, employment_profile = EXCLUDED.employment_profile, kyc_status = EXCLUDED.kyc_status, kyc_document_note = EXCLUDED.kyc_document_note, marketing_opt_in = EXCLUDED.marketing_opt_in, alert_opt_in = EXCLUDED.alert_opt_in, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [input.userId, input.legalName.trim().slice(0, 120), input.dateOfBirth ?? "", input.residentialAddress.trim().slice(0, 300), input.mailingAddress.trim().slice(0, 300), input.phone.trim().slice(0, 40), input.taxIdLast4.trim().slice(-4), input.employmentProfile.trim().slice(0, 200), input.kycStatus, input.kycDocumentNote.trim().slice(0, 500), input.marketingOptIn, input.alertOptIn, admin.email],
+  )
+  await logAdminAction(admin.id, "profile_updated", input.userId, { kycStatus: input.kycStatus })
+  revalidatePath("/admin")
+  return { ok: true as const }
+}
+
+export async function requestAdminCredentialReset(userId: string) {
+  const admin = await requireAdminRole("manager")
+  if (!userId) return { ok: false as const, error: "Choose a member first." }
+  await ensureAdminControlsTable()
+  await pool.query(`INSERT INTO admin_security_event (user_id, event_type, details, created_by) VALUES ($1, 'credential_reset_requested', 'Mandatory password reset requested by operations.', $2)`, [userId, admin.email])
+  await pool.query(`DELETE FROM session WHERE "userId" = $1`, [userId])
+  await logAdminAction(admin.id, "credential_reset_requested", userId)
+  return { ok: true as const }
+}
+
+export async function getAdminUserSessions(userId: string) {
+  await requireAdmin()
+  return (await pool.query<AdminSession>(`SELECT id, "userAgent", "ipAddress", "createdAt", "expiresAt" FROM session WHERE "userId" = $1 ORDER BY "createdAt" DESC`, [userId])).rows
+}
+
+export async function terminateAdminSession(sessionId: string) {
+  const admin = await requireAdminRole("manager")
+  if (!sessionId) return { ok: false as const, error: "Choose a session." }
+  const result = await pool.query<{ userId: string }>(`DELETE FROM session WHERE id = $1 RETURNING "userId"`, [sessionId])
+  if (!result.rowCount) return { ok: false as const, error: "Session not found." }
+  await logAdminAction(admin.id, "session_terminated", result.rows[0].userId, { sessionId })
+  return { ok: true as const }
+}
+
+export type AdminTransaction = {
+  id: number
+  fromUserId: string
+  toUserId: string
+  fromName: string
+  toName: string
+  amount: number
+  note: string | null
+  createdAt: Date
+  action: "reversed" | "reversal_requested" | "recalled" | "fee_refunded" | null
+}
+
+export async function getAdminUserTransactions(userId: string) {
+  await requireAdmin()
+  await ensureAdminControlsTable()
+  return (await pool.query<AdminTransaction>(
+    `SELECT bt.id, bt."fromUserId", bt."toUserId", bt."fromName", bt."toName", bt.amount, bt.note, bt."createdAt", ata.action
+     FROM bank_transaction bt LEFT JOIN LATERAL (SELECT action FROM admin_transaction_action WHERE transaction_id = bt.id ORDER BY created_at DESC LIMIT 1) ata ON TRUE
+     WHERE bt."fromUserId" = $1 OR bt."toUserId" = $1 ORDER BY bt."createdAt" DESC LIMIT 50`,
+    [userId],
+  )).rows
+}
+
+export async function reverseAdminTransaction(transactionId: number, note: string) {
+  const admin = await requireAdminRole("manager")
+  if (!Number.isInteger(transactionId) || transactionId <= 0) return { ok: false as const, error: "Choose a valid transaction." }
+  await ensureAdminControlsTable()
+  const existing = await pool.query<{ action: string }>(`SELECT action FROM admin_transaction_action WHERE transaction_id = $1 AND action = 'reversed' LIMIT 1`, [transactionId])
+  if (existing.rowCount) return { ok: false as const, error: "This transaction was already reversed." }
+  try {
+    await db.transaction(async (tx) => {
+      const [transaction] = await tx.select().from(bankTransaction).where(eq(bankTransaction.id, transactionId)).for("update")
+      if (!transaction) throw new Error("TRANSACTION_NOT_FOUND")
+      const [sender] = transaction.fromUserId === "bank" ? [] : await tx.select().from(bankAccount).where(eq(bankAccount.userId, transaction.fromUserId)).for("update")
+      const [recipient] = transaction.toUserId === "bank" ? [] : await tx.select().from(bankAccount).where(eq(bankAccount.userId, transaction.toUserId)).for("update")
+      if (transaction.fromUserId !== "bank" && !sender) throw new Error("ACCOUNT_NOT_FOUND")
+      if (transaction.toUserId !== "bank" && !recipient) throw new Error("ACCOUNT_NOT_FOUND")
+      if (sender && sender.balance < transaction.amount) throw new Error("INSUFFICIENT_FUNDS")
+      if (sender) await tx.update(bankAccount).set({ balance: sql`${bankAccount.balance} - ${transaction.amount}` }).where(eq(bankAccount.userId, sender.userId))
+      if (recipient) await tx.update(bankAccount).set({ balance: sql`${bankAccount.balance} + ${transaction.amount}` }).where(eq(bankAccount.userId, recipient.userId))
+      await tx.insert(bankTransaction).values({ fromUserId: transaction.toUserId, toUserId: transaction.fromUserId, fromName: transaction.toName, toName: transaction.fromName, fromAccountNumber: transaction.toAccountNumber, toAccountNumber: transaction.fromAccountNumber, amount: transaction.amount, note: `Reversal of transaction #${transaction.id}: ${note.trim().slice(0, 160)}` })
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === "TRANSACTION_NOT_FOUND") return { ok: false as const, error: "Transaction not found." }
+    if (error instanceof Error && error.message === "INSUFFICIENT_FUNDS") return { ok: false as const, error: "The originating account cannot cover this reversal." }
+    return { ok: false as const, error: "Transaction reversal could not be completed." }
+  }
+  await pool.query(`INSERT INTO admin_transaction_action (transaction_id, action, note, created_by) VALUES ($1, 'reversed', $2, $3)`, [transactionId, note.trim().slice(0, 500), admin.email])
+  await logAdminAction(admin.id, "transaction_reversed", null, { transactionId, note: note.trim().slice(0, 160) })
+  revalidatePath("/admin")
+  return { ok: true as const }
 }
 
 export async function getAdminAuditLog(userId?: string) {

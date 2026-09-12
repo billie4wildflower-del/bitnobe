@@ -10,6 +10,17 @@ export function isAdminEmail(email: string) {
   return allowedEmails.includes(email.trim().toLowerCase())
 }
 
+export type AdminRole = "support" | "manager" | "engineering"
+
+export function getAdminRole(email: string): AdminRole | null {
+  const normalizedEmail = email.trim().toLowerCase()
+  const matches = (key: string) => (process.env[key] ?? "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean).includes(normalizedEmail)
+  if (matches("ADMIN_ENGINEERING_EMAILS")) return "engineering"
+  if (matches("ADMIN_MANAGER_EMAILS") || isAdminEmail(normalizedEmail)) return "manager"
+  if (matches("ADMIN_SUPPORT_EMAILS")) return "support"
+  return null
+}
+
 function resolveBaseURL() {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`

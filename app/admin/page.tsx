@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 import { headers } from "next/headers"
 
-import { auth, isAdminEmail } from "@/lib/auth"
+import { auth, getAdminRole, isAdminEmail } from "@/lib/auth"
 import { getAdminDashboard } from "@/app/actions/bank"
 import { AdminPageClient } from "@/components/admin-page-client"
 import { DatabaseStatus } from "@/components/database-status"
@@ -28,7 +28,7 @@ export default async function AdminPage() {
 
 	try {
 		const users = await getAdminDashboard()
-		return <AdminPageClient name={session.user.name} email={session.user.email} initialUsers={users} />
+		return <AdminPageClient name={session.user.name} email={session.user.email} role={getAdminRole(session.user.email) ?? "manager"} initialUsers={users} />
 	} catch {
 		return (
 			<main className="flex min-h-screen items-center justify-center bg-background px-4">
