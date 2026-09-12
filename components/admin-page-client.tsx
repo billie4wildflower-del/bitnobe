@@ -33,7 +33,7 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
   const selectedUser = users.find((user) => user.id === selectedId)
   const filteredUsers = users.filter((user) => {
     const query = search.trim().toLowerCase()
-    const matchesQuery = !query || user.name.toLowerCase().includes(query) || user.email.toLowerCase().includes(query)
+    const matchesQuery = !query || user.name.toLowerCase().includes(query) || user.email.toLowerCase().includes(query) || user.accountNumber?.includes(query)
     return matchesQuery && (statusFilter === "all" || user.status === statusFilter)
   })
 

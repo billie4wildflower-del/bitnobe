@@ -91,10 +91,13 @@ export function TopNav({
               <UserRound className="mr-2 h-4 w-4" />
               Profile & security
             </DropdownMenuItem>
-            {isAdmin && <DropdownMenuItem onClick={() => router.push("/admin")}>
+            {isAdmin && <Link
+              href="/admin"
+              className="relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-none select-none hover:bg-accent focus:bg-accent focus:text-accent-foreground"
+            >
               <ShieldCheck className="mr-2 h-4 w-4" />
               Operations console
-            </DropdownMenuItem>}
+            </Link>}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
               <LogOut className="mr-2 h-4 w-4" />

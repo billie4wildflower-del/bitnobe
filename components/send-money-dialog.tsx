@@ -1,12 +1,12 @@
 "use client"
 
 import type React from "react"
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
 
-import { transfer } from "@/app/actions/bank"
+import { addTransferContact, searchRecipients, transfer, type RecipientRecord } from "@/app/actions/bank"
 import { formatCents, maskAccount, parseDollarsToCents } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,6 +25,8 @@ export type Recipient = {
   name: string
   email: string
   accountNumber: string
+  isContact?: boolean
+  hasPreviousTransfer?: boolean
 }
 
 export function SendMoneyDialog({
@@ -40,6 +42,10 @@ export function SendMoneyDialog({
 }) {
   const router = useRouter()
   const [toUserId, setToUserId] = useState("")
+  const [recipientQuery, setRecipientQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<RecipientRecord[]>([])
+  const [selectedRecipient, setSelectedRecipient] = useState<Recipient | null>(null)
+  const [saveContact, setSaveContact] = useState(false)
   const [amount, setAmount] = useState("")
   const [note, setNote] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -47,9 +53,38 @@ export function SendMoneyDialog({
 
   function reset() {
     setToUserId("")
+    setRecipientQuery("")
+    setSearchResults([])
+    setSelectedRecipient(null)
+    setSaveContact(false)
     setAmount("")
     setNote("")
     setError(null)
+  }
+
+  useEffect(() => {
+    const query = recipientQuery.trim()
+    if (!query) {
+      setSearchResults([])
+      return
+    }
+    let active = true
+    const timer = window.setTimeout(() => {
+      void searchRecipients(query).then((results) => {
+        if (active) setSearchResults(results)
+      })
+    }, 250)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [recipientQuery])
+
+  function selectRecipient(recipient: Recipient) {
+    setToUserId(recipient.id)
+    setRecipientQuery(recipient.email)
+    setSelectedRecipient(recipient)
+    setSearchResults([])
   }
 
   function onSubmit(e: React.FormEvent) {
@@ -71,14 +106,19 @@ export function SendMoneyDialog({
     }
 
     startTransition(async () => {
-      const res = await transfer({ toUserId, amountCents: cents, note: note.trim() || undefined })
+      const res = await transfer({ toUserId: toUserId || undefined, recipientIdentifier: recipientQuery, amountCents: cents, note: note.trim() || undefined })
       if (!res.ok) {
         setError(res.error)
         return
       }
       const recipient = recipients.find((r) => r.id === toUserId)
+      const chosenRecipient = recipient ?? selectedRecipient
+      if (saveContact && !chosenRecipient?.isContact) {
+        const contactResult = await addTransferContact(chosenRecipient?.email ?? recipientQuery)
+        if (!contactResult.ok) toast.error("Transfer sent, but the contact could not be saved", { description: contactResult.error })
+      }
       toast.success("Transfer sent", {
-        description: `${amount} sent to ${recipient?.name ?? "recipient"}.`,
+        description: `${amount} sent to ${chosenRecipient?.name ?? "recipient"}.`,
       })
       reset()
       onOpenChange(false)
@@ -100,30 +140,35 @@ export function SendMoneyDialog({
           <DialogDescription>Transfer funds to another registered member.</DialogDescription>
         </DialogHeader>
 
-        {recipients.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            No other members are registered yet. Once another person creates an account, you can send them money.
-          </p>
-        ) : (
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="recipient">Recipient</Label>
-              <select
+              <Label htmlFor="recipient">Recipient email or account number</Label>
+              <Input
                 id="recipient"
-                value={toUserId}
-                onChange={(e) => setToUserId(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="" disabled>
-                  Select a member
-                </option>
-                {recipients.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name} — {maskAccount(r.accountNumber)}
-                  </option>
-                ))}
-              </select>
+                value={recipientQuery}
+                onChange={(e) => { setRecipientQuery(e.target.value); setToUserId(""); setSelectedRecipient(null) }}
+                placeholder="name@example.com or account number"
+                autoComplete="off"
+                required
+              />
+              {(searchResults.length > 0 || (!recipientQuery && recipients.length > 0)) && <div className="max-h-36 overflow-y-auto rounded-md border bg-popover p-1">
+                {(searchResults.length > 0 ? searchResults : recipients.slice(0, 5)).map((recipient) => <button
+                  key={recipient.id}
+                  type="button"
+                  onClick={() => selectRecipient(recipient)}
+                  className="flex w-full items-center justify-between rounded px-2 py-2 text-left text-sm hover:bg-muted"
+                >
+                  <span><span className="font-medium">{recipient.name}</span><span className="ml-2 text-muted-foreground">{recipient.email}</span></span>
+                  <span className="ml-2 shrink-0 font-mono text-xs text-muted-foreground">{maskAccount(recipient.accountNumber)}</span>
+                </button>)}
+              </div>}
+              {recipientQuery && !toUserId && searchResults.length === 0 && <p className="text-xs text-muted-foreground">Keep typing to find a registered member.</p>}
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input type="checkbox" checked={saveContact} onChange={(e) => setSaveContact(e.target.checked)} />
+              Save this recipient to my contacts
+            </label>
 
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
@@ -167,8 +212,7 @@ export function SendMoneyDialog({
                 Send transfer
               </Button>
             </DialogFooter>
-          </form>
-        )}
+        </form>
       </DialogContent>
     </Dialog>
   )

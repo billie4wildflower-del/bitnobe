@@ -109,19 +109,49 @@ export async function updateProfile(input: { name: string }) {
 // Other registered users this user can send money to.
 export async function getRecipients() {
   const sessionUser = await getSessionUser()
-  const rows = await db
-    .select({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      accountNumber: bankAccount.accountNumber,
-    })
-    .from(user)
-    .innerJoin(bankAccount, eq(bankAccount.userId, user.id))
-    .innerJoin(sql`transfer_contact`, sql`transfer_contact.contact_user_id = ${user.id}`)
-    .where(and(eq(sql`transfer_contact.owner_user_id`, sessionUser.id), ne(user.id, sessionUser.id)))
-    .orderBy(user.name)
-  return rows
+  await ensureBankingFeaturesTables()
+  const result = await pool.query<RecipientRecord>(
+    `SELECT u.id, u.name, u.email, ba."accountNumber" AS "accountNumber",
+       EXISTS (SELECT 1 FROM transfer_contact tc WHERE tc.owner_user_id = $1 AND tc.contact_user_id = u.id) AS "isContact",
+      EXISTS (SELECT 1 FROM bank_transaction bt WHERE (bt."fromUserId" = $1 AND bt."toUserId" = u.id) OR (bt."toUserId" = $1 AND bt."fromUserId" = u.id)) AS "hasPreviousTransfer"
+     FROM "user" u
+     JOIN bank_account ba ON ba."userId" = u.id
+     WHERE u.id <> $1
+       AND (EXISTS (SELECT 1 FROM transfer_contact tc WHERE tc.owner_user_id = $1 AND tc.contact_user_id = u.id)
+         OR EXISTS (SELECT 1 FROM bank_transaction bt WHERE (bt."fromUserId" = $1 AND bt."toUserId" = u.id) OR (bt."toUserId" = $1 AND bt."fromUserId" = u.id)))
+     ORDER BY "hasPreviousTransfer" DESC, u.name ASC
+     LIMIT 50`,
+    [sessionUser.id],
+  )
+  return result.rows
+}
+
+export type RecipientRecord = {
+  id: string
+  name: string
+  email: string
+  accountNumber: string
+  isContact: boolean
+  hasPreviousTransfer: boolean
+}
+
+export async function searchRecipients(query: string) {
+  const sessionUser = await getSessionUser()
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return [] as RecipientRecord[]
+
+  const result = await pool.query<RecipientRecord>(
+    `SELECT u.id, u.name, u.email, ba."accountNumber" AS "accountNumber",
+       EXISTS (SELECT 1 FROM transfer_contact tc WHERE tc.owner_user_id = $1 AND tc.contact_user_id = u.id) AS "isContact",
+      EXISTS (SELECT 1 FROM bank_transaction bt WHERE (bt."fromUserId" = $1 AND bt."toUserId" = u.id) OR (bt."toUserId" = $1 AND bt."fromUserId" = u.id)) AS "hasPreviousTransfer"
+     FROM "user" u
+     JOIN bank_account ba ON ba."userId" = u.id
+     WHERE u.id <> $1 AND (lower(u.email) LIKE $2 OR ba."accountNumber" LIKE $3)
+     ORDER BY "hasPreviousTransfer" DESC, u.name ASC
+     LIMIT 10`,
+    [sessionUser.id, `%${normalizedQuery}%`, `%${query.trim()}%`],
+  )
+  return result.rows
 }
 
 async function ensureBankingFeaturesTables() {
@@ -157,12 +187,17 @@ async function ensureBankingFeaturesTables() {
   `)
 }
 
-export async function addTransferContact(email: string) {
+export async function addTransferContact(identifier: string) {
   const sessionUser = await getSessionUser()
-  const normalizedEmail = email.trim().toLowerCase()
-  if (!normalizedEmail) return { ok: false as const, error: "Enter a member email." }
-  const [contact] = await db.select({ id: user.id }).from(user).where(eq(sql`lower(${user.email})`, normalizedEmail)).limit(1)
-  if (!contact) return { ok: false as const, error: "No registered member matches that email." }
+  const normalizedIdentifier = identifier.trim().toLowerCase()
+  if (!normalizedIdentifier) return { ok: false as const, error: "Enter a member email or account number." }
+  const [contact] = await db
+    .select({ id: user.id })
+    .from(user)
+    .innerJoin(bankAccount, eq(bankAccount.userId, user.id))
+    .where(or(eq(sql`lower(${user.email})`, normalizedIdentifier), eq(bankAccount.accountNumber, identifier.trim())))
+    .limit(1)
+  if (!contact) return { ok: false as const, error: "No registered member matches that email or account number." }
   if (contact.id === sessionUser.id) return { ok: false as const, error: "You cannot add yourself." }
   await ensureBankingFeaturesTables()
   await pool.query(`INSERT INTO transfer_contact (owner_user_id, contact_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [sessionUser.id, contact.id])
@@ -513,18 +548,28 @@ export async function postBankDebit(userId: string, amountCents: number, note: s
 }
 
 // Atomic transfer between two registered users.
-export async function transfer(input: { toUserId: string; amountCents: number; note?: string }) {
+export async function transfer(input: { toUserId?: string; recipientIdentifier?: string; amountCents: number; note?: string }) {
   const sessionUser = await getSessionUser()
   await ensureAccount()
   await ensureBankingFeaturesTables()
 
-  const { toUserId, amountCents, note } = input
+  let toUserId = input.toUserId ?? ""
+  const { amountCents, note } = input
+
+  if (!toUserId && input.recipientIdentifier?.trim()) {
+    const identifier = input.recipientIdentifier.trim()
+    const [recipient] = await db
+      .select({ id: user.id })
+      .from(user)
+      .innerJoin(bankAccount, eq(bankAccount.userId, user.id))
+      .where(or(eq(sql`lower(${user.email})`, identifier.toLowerCase()), eq(bankAccount.accountNumber, identifier)))
+      .limit(1)
+    toUserId = recipient?.id ?? ""
+  }
 
   if (!toUserId || toUserId === sessionUser.id) {
     return { ok: false as const, error: "Choose a valid recipient." }
   }
-  const contact = await pool.query(`SELECT 1 FROM transfer_contact WHERE owner_user_id = $1 AND contact_user_id = $2`, [sessionUser.id, toUserId])
-  if (!contact.rowCount) return { ok: false as const, error: "Add this member to your transfer contacts first." }
   if (!Number.isInteger(amountCents) || amountCents <= 0) {
     return { ok: false as const, error: "Enter a valid amount." }
   }
