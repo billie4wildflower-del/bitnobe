@@ -14,6 +14,7 @@ type Summary = {
   user: { id: string; name: string; email: string }
   account: { accountNumber: string; routingNumber: string; balance: number }
   transactions: Transaction[]
+  isAdmin: boolean
 }
 
 export function Dashboard({ summary, recipients }: { summary: Summary; recipients: Recipient[] }) {
@@ -35,7 +36,7 @@ export function Dashboard({ summary, recipients }: { summary: Summary; recipient
 
   return (
     <div className="min-h-screen bg-background">
-      <TopNav name={user.name} email={user.email} activeView={activeView} onViewChange={setActiveView} />
+      <TopNav name={user.name} email={user.email} activeView={activeView} onViewChange={setActiveView} isAdmin={summary.isAdmin} />
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <div className="mb-6 flex items-end justify-between gap-4">
           <div><p className="text-sm text-muted-foreground">Member workspace</p><h1 className="text-3xl font-semibold tracking-tight capitalize">{activeView}</h1></div>

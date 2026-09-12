@@ -62,7 +62,41 @@ export async function getAccountSummary() {
       balance: acct.balance,
     },
     transactions: txns,
+    isAdmin: isAdminEmail(sessionUser.email),
   }
+}
+
+export async function getProfile() {
+  const sessionUser = await getSessionUser()
+  const acct = await ensureAccount()
+  return {
+    user: {
+      id: sessionUser.id,
+      name: sessionUser.name,
+      email: sessionUser.email,
+      emailVerified: sessionUser.emailVerified,
+      createdAt: sessionUser.createdAt,
+    },
+    account: {
+      accountNumber: acct.accountNumber,
+      routingNumber: acct.routingNumber,
+      balance: acct.balance,
+      openedAt: acct.createdAt,
+    },
+    isAdmin: isAdminEmail(sessionUser.email),
+  }
+}
+
+export async function updateProfile(input: { name: string }) {
+  const sessionUser = await getSessionUser()
+  const name = input.name.trim().replace(/\s+/g, " ")
+  if (name.length < 2) return { ok: false as const, error: "Enter a name with at least 2 characters." }
+  if (name.length > 80) return { ok: false as const, error: "Names must be 80 characters or less." }
+
+  await db.update(user).set({ name, updatedAt: new Date() }).where(eq(user.id, sessionUser.id))
+  revalidatePath("/")
+  revalidatePath("/profile")
+  return { ok: true as const, name }
 }
 
 // Other registered users this user can send money to.

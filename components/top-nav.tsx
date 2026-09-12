@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Landmark, LogOut } from "lucide-react"
+import { Landmark, LogOut, ShieldCheck, UserRound } from "lucide-react"
 
 import { authClient } from "@/lib/auth-client"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -31,11 +31,13 @@ export function TopNav({
   email,
   activeView,
   onViewChange,
+  isAdmin = false,
 }: {
   name: string
   email: string
   activeView: WorkspaceView
   onViewChange?: (view: WorkspaceView) => void
+  isAdmin?: boolean
 }) {
   const router = useRouter()
 
@@ -84,6 +86,15 @@ export function TopNav({
               <p className="text-sm font-medium">{name}</p>
               <p className="text-xs font-normal text-muted-foreground">{email}</p>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/profile")}>
+              <UserRound className="mr-2 h-4 w-4" />
+              Profile & security
+            </DropdownMenuItem>
+            {isAdmin && <DropdownMenuItem onClick={() => router.push("/admin")}>
+              <ShieldCheck className="mr-2 h-4 w-4" />
+              Operations console
+            </DropdownMenuItem>}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
