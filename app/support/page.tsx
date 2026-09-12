@@ -3,8 +3,7 @@ import { headers } from "next/headers"
 
 import { auth } from "@/lib/auth"
 import { getRegisteredUsers, getSupportMessages } from "@/app/actions/bank"
-import { SupportDirectory } from "@/components/support-directory"
-import { TopNav } from "@/components/top-nav"
+import { SupportPageClient } from "@/components/support-page-client"
 import { DatabaseStatus } from "@/components/database-status"
 
 export default async function SupportPage() {
@@ -28,8 +27,7 @@ export default async function SupportPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopNav name={session.user.name} email={session.user.email} activeView="support" />
-      <SupportDirectory users={users} initialMessages={messages} />
+      <SupportPageClient name={session.user.name} email={session.user.email} users={users} messages={messages} />
     </div>
   )
 }
