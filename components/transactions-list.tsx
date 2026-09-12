@@ -28,7 +28,7 @@ export function TransactionsList({
           <Inbox className="h-5 w-5 text-muted-foreground" />
         </div>
         <p className="text-sm font-medium">No transactions yet</p>
-        <p className="text-sm text-muted-foreground">Add money or send a transfer to get started.</p>
+        <p className="text-sm text-muted-foreground">Your BitNobe activity will appear here.</p>
       </div>
     )
   }

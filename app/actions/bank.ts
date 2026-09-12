@@ -1,7 +1,7 @@
 "use server"
 
 import { auth } from "@/lib/auth"
-import { db } from "@/lib/db"
+import { db, pool } from "@/lib/db"
 import { bankAccount, bankTransaction, user } from "@/lib/db/schema"
 import { and, desc, eq, ne, or, sql } from "drizzle-orm"
 import { headers } from "next/headers"
@@ -75,40 +75,68 @@ export async function getRecipients() {
   return rows
 }
 
-// Simulated external deposit that funds the user's own account.
-export async function deposit(amountCents: number) {
-  const sessionUser = await getSessionUser()
-  await ensureAccount()
-
-  if (!Number.isInteger(amountCents) || amountCents <= 0) {
-    return { ok: false as const, error: "Enter a valid amount." }
-  }
-  if (amountCents > 100_000_00) {
-    return { ok: false as const, error: "Deposits are limited to $100,000 per transaction." }
-  }
-
-  await db.transaction(async (tx) => {
-    await tx
-      .update(bankAccount)
-      .set({ balance: sql`${bankAccount.balance} + ${amountCents}` })
-      .where(eq(bankAccount.userId, sessionUser.id))
-
-    const [acct] = await tx.select().from(bankAccount).where(eq(bankAccount.userId, sessionUser.id)).limit(1)
-
-    await tx.insert(bankTransaction).values({
-      fromUserId: "external",
-      toUserId: sessionUser.id,
-      fromName: "External Deposit",
-      toName: sessionUser.name,
-      fromAccountNumber: "EXTERNAL",
-      toAccountNumber: acct.accountNumber,
-      amount: amountCents,
-      note: "Deposit",
+export async function getRegisteredUsers() {
+  await getSessionUser()
+  return db
+    .select({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+      createdAt: user.createdAt,
     })
-  })
+    .from(user)
+    .orderBy(user.name)
+}
 
-  revalidatePath("/")
-  return { ok: true as const }
+async function ensureSupportMessagesTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_message (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      sender TEXT NOT NULL CHECK (sender IN ('member', 'bank')),
+      body TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+}
+
+export type SupportMessage = {
+  id: number
+  sender: "member" | "bank"
+  body: string
+  createdAt: Date
+}
+
+export async function getSupportMessages() {
+  const sessionUser = await getSessionUser()
+  await ensureSupportMessagesTable()
+  const result = await pool.query<SupportMessage>(
+    `SELECT id, sender, body, created_at AS "createdAt"
+     FROM support_message
+     WHERE user_id = $1
+     ORDER BY created_at ASC
+     LIMIT 100`,
+    [sessionUser.id],
+  )
+  return result.rows
+}
+
+export async function sendSupportMessage(body: string) {
+  const sessionUser = await getSessionUser()
+  const message = body.trim()
+  if (!message) return { ok: false as const, error: "Write a message before sending." }
+  if (message.length > 2000) return { ok: false as const, error: "Messages must be 2,000 characters or less." }
+
+  await ensureSupportMessagesTable()
+  const result = await pool.query<SupportMessage>(
+    `INSERT INTO support_message (user_id, sender, body)
+     VALUES ($1, 'member', $2)
+     RETURNING id, sender, body, created_at AS "createdAt"`,
+    [sessionUser.id, message],
+  )
+  revalidatePath("/support")
+  return { ok: true as const, message: result.rows[0] }
 }
 
 // Atomic transfer between two registered users.

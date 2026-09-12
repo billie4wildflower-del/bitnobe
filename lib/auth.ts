@@ -25,7 +25,7 @@ function resolveTrustedOrigins() {
 }
 
 export const auth = betterAuth({
-  database: new Pool({ connectionString: process.env.DATABASE_URL }),
+  database: new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 3000 }),
   baseURL: resolveBaseURL(),
   trustedOrigins: resolveTrustedOrigins(),
   emailAndPassword: {

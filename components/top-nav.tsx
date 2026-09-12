@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { Landmark, LogOut } from "lucide-react"
 
 import { authClient } from "@/lib/auth-client"
@@ -23,7 +24,19 @@ function initials(name: string) {
     .toUpperCase()
 }
 
-export function TopNav({ name, email }: { name: string; email: string }) {
+export type WorkspaceView = "overview" | "accounts" | "transfers" | "activity" | "support"
+
+export function TopNav({
+  name,
+  email,
+  activeView,
+  onViewChange,
+}: {
+  name: string
+  email: string
+  activeView: WorkspaceView
+  onViewChange: (view: WorkspaceView) => void
+}) {
   const router = useRouter()
 
   async function handleSignOut() {
@@ -40,10 +53,22 @@ export function TopNav({ name, email }: { name: string; email: string }) {
             <Landmark className="h-5 w-5" />
           </div>
           <div className="leading-tight">
-            <p className="text-sm font-semibold tracking-tight">Autonoma Bank</p>
-            <p className="text-xs text-muted-foreground">Internal Console</p>
+            <p className="text-sm font-semibold tracking-tight">BitNobe</p>
+            <p className="text-xs text-muted-foreground">Member banking</p>
           </div>
         </div>
+
+        <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">
+          {(["overview", "accounts", "transfers", "activity"] as WorkspaceView[]).map((view) => (
+            <button key={view} type="button" onClick={() => onViewChange(view)} className={`rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors ${
+                activeView === view ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              {view}
+            </button>
+          ))}
+          <Link href="/support" className={`rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors ${activeView === "support" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>Support</Link>
+        </nav>
 
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-md px-2 py-1.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">

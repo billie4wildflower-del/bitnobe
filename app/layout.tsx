@@ -8,14 +8,14 @@ const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
-  title: "Autonoma Bank — Internal Banking Console",
-  description: "Secure internal banking console for registered members to hold balances and transfer funds to one another.",
+  title: "BitNobe — Member Banking",
+  description: "Secure member banking for BitNobe internal transfers and account activity.",
   generator: "v0.app",
 }
 
 export const viewport: Viewport = {
   colorScheme: "light",
-  themeColor: "#2563eb",
+  themeColor: "#0f766e",
 }
 
 export default function RootLayout({

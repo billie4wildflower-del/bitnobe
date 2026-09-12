@@ -49,7 +49,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
           <Landmark className="h-6 w-6" />
         </div>
         <div>
-          <p className="text-lg font-semibold leading-tight tracking-tight">Autonoma Bank</p>
+          <p className="text-lg font-semibold leading-tight tracking-tight">BitNobe</p>
           <p className="text-sm text-muted-foreground leading-tight">Internal Banking Console</p>
         </div>
       </div>
