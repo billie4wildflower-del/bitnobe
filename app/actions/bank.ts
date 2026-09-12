@@ -11,6 +11,12 @@ import { isAdminEmail } from "@/lib/auth"
 async function getSessionUser() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) throw new Error("Unauthorized")
+  await ensureAdminControlsTable()
+  const control = await pool.query<{ status: "active" | "suspended" }>(
+    `SELECT status FROM admin_user_control WHERE user_id = $1`,
+    [session.user.id],
+  )
+  if (control.rows[0]?.status === "suspended") throw new Error("Account suspended")
   return session.user
 }
 
@@ -142,6 +148,18 @@ async function ensureSupportMessagesTable() {
   `)
 }
 
+async function ensureAdminControlsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_user_control (
+      user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+      admin_note TEXT NOT NULL DEFAULT '',
+      updated_by TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+}
+
 export type SupportMessage = {
   id: number
   sender: "member" | "bank"
@@ -190,14 +208,21 @@ export type AdminUser = {
   balance: number
   lastMessageAt: Date | null
   unreadMessages: number
+  status: "active" | "suspended"
+  adminNote: string
+  controlUpdatedAt: Date | null
 }
 
 export async function getAdminDashboard() {
   await requireAdmin()
   await ensureSupportMessagesTable()
+  await ensureAdminControlsTable()
   const result = await pool.query<AdminUser>(`
     SELECT u.id, u.name, u.email, u.image, u."createdAt",
       ba."accountNumber", COALESCE(ba.balance, 0)::integer AS balance,
+      COALESCE(auc.status, 'active') AS status,
+      COALESCE(auc.admin_note, '') AS "adminNote",
+      auc.updated_at AS "controlUpdatedAt",
       MAX(sm.created_at) AS "lastMessageAt",
       COUNT(sm.id) FILTER (
         WHERE sm.sender = 'member'
@@ -208,11 +233,52 @@ export async function getAdminDashboard() {
       )::integer AS "unreadMessages"
     FROM "user" u
     LEFT JOIN bank_account ba ON ba."userId" = u.id
+    LEFT JOIN admin_user_control auc ON auc.user_id = u.id
     LEFT JOIN support_message sm ON sm.user_id = u.id
     GROUP BY u.id, ba."accountNumber", ba.balance
     ORDER BY MAX(sm.created_at) DESC NULLS LAST, u.name ASC
   `)
   return result.rows
+}
+
+export async function updateAdminUserControl(input: {
+  userId: string
+  status: "active" | "suspended"
+  adminNote: string
+}) {
+  const admin = await requireAdmin()
+  if (!input.userId || input.userId === admin.id) return { ok: false as const, error: "You cannot change your own admin access." }
+  if (!['active', 'suspended'].includes(input.status)) return { ok: false as const, error: "Choose a valid account status." }
+  const adminNote = input.adminNote.trim().slice(0, 500)
+  await ensureAdminControlsTable()
+  await pool.query(
+    `INSERT INTO admin_user_control (user_id, status, admin_note, updated_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id) DO UPDATE SET status = EXCLUDED.status, admin_note = EXCLUDED.admin_note,
+       updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [input.userId, input.status, adminNote, admin.email],
+  )
+  if (input.status === "suspended") {
+    await pool.query(`DELETE FROM session WHERE "userId" = $1`, [input.userId])
+  }
+  revalidatePath("/admin")
+  revalidatePath("/")
+  return { ok: true as const }
+}
+
+export async function revokeUserSessions(userId: string) {
+  const admin = await requireAdmin()
+  if (!userId || userId === admin.id) return { ok: false as const, error: "You cannot revoke your own admin sessions." }
+  await pool.query(`DELETE FROM session WHERE "userId" = $1`, [userId])
+  await ensureAdminControlsTable()
+  await pool.query(
+    `INSERT INTO admin_user_control (user_id, updated_by, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (user_id) DO UPDATE SET updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [userId, admin.email],
+  )
+  revalidatePath("/admin")
+  return { ok: true as const }
 }
 
 export async function getAdminConversation(userId: string) {
@@ -267,6 +333,32 @@ export async function postBankCredit(userId: string, amountCents: number, note: 
   } catch (error) {
     if (error instanceof Error && error.message === "ACCOUNT_NOT_FOUND") return { ok: false as const, error: "Member account not found." }
     return { ok: false as const, error: "Bank credit could not be posted." }
+  }
+  revalidatePath("/admin")
+  return { ok: true as const }
+}
+
+export async function postBankDebit(userId: string, amountCents: number, note: string) {
+  const admin = await requireAdmin()
+  if (!userId || !Number.isInteger(amountCents) || amountCents <= 0) return { ok: false as const, error: "Enter a valid debit amount." }
+  if (amountCents > 100_000_00) return { ok: false as const, error: "Debits are limited to $100,000 per operation." }
+  try {
+    await db.transaction(async (tx) => {
+      const [recipient] = await tx.select().from(bankAccount).where(eq(bankAccount.userId, userId)).for("update")
+      if (!recipient) throw new Error("ACCOUNT_NOT_FOUND")
+      if (recipient.balance < amountCents) throw new Error("INSUFFICIENT_FUNDS")
+      const [recipientUser] = await tx.select({ name: user.name }).from(user).where(eq(user.id, userId)).limit(1)
+      await tx.update(bankAccount).set({ balance: sql`${bankAccount.balance} - ${amountCents}` }).where(eq(bankAccount.userId, userId))
+      await tx.insert(bankTransaction).values({
+        fromUserId: userId, toUserId: "bank", fromName: recipientUser?.name ?? "Member", toName: "BitNobe Bank Operations",
+        fromAccountNumber: recipient.accountNumber, toAccountNumber: "BANK", amount: amountCents,
+        note: note.trim().slice(0, 200) || `Authorized by ${admin.email}`,
+      })
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === "ACCOUNT_NOT_FOUND") return { ok: false as const, error: "Member account not found." }
+    if (error instanceof Error && error.message === "INSUFFICIENT_FUNDS") return { ok: false as const, error: "Debit exceeds the available balance." }
+    return { ok: false as const, error: "Bank debit could not be posted." }
   }
   revalidatePath("/admin")
   return { ok: true as const }
