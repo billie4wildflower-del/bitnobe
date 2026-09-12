@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
+export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-up"; redirectTo?: string }) {
   const router = useRouter()
   const isSignUp = mode === "sign-up"
 
@@ -34,7 +34,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         const { error } = await authClient.signIn.email({ email, password })
         if (error) throw new Error(error.message)
       }
-      router.push("/")
+      router.push(redirectTo)
       router.refresh()
     } catch (err) {
       setError(isSignUp ? "Could not create account. Try a different email." : "Invalid email or password.")
