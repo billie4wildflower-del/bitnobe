@@ -28,7 +28,7 @@ export default async function SupportPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopNav name={session.user.name} email={session.user.email} activeView="support" onViewChange={() => {}} />
+      <TopNav name={session.user.name} email={session.user.email} activeView="support" />
       <SupportDirectory users={users} initialMessages={messages} />
     </div>
   )

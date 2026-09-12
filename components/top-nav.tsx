@@ -35,7 +35,7 @@ export function TopNav({
   name: string
   email: string
   activeView: WorkspaceView
-  onViewChange: (view: WorkspaceView) => void
+  onViewChange?: (view: WorkspaceView) => void
 }) {
   const router = useRouter()
 
@@ -60,7 +60,7 @@ export function TopNav({
 
         <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">
           {(["overview", "accounts", "transfers", "activity"] as WorkspaceView[]).map((view) => (
-            <button key={view} type="button" onClick={() => onViewChange(view)} className={`rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors ${
+            <button key={view} type="button" onClick={() => onViewChange?.(view)} className={`rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors ${
                 activeView === view ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
