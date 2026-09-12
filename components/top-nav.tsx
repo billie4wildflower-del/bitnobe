@@ -50,7 +50,7 @@ export function TopNav({
   return (
     <header className="sticky top-0 z-20 border-b bg-card/80 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <div className="flex items-center gap-3">
+        <Link href="/business-banking" className="flex items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Landmark className="h-5 w-5" />
           </div>
@@ -58,7 +58,7 @@ export function TopNav({
             <p className="text-sm font-semibold tracking-tight">BitNobe</p>
             <p className="text-xs text-muted-foreground">Member banking</p>
           </div>
-        </div>
+        </Link>
 
         <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">
           {(["overview", "accounts", "transfers", "activity"] as WorkspaceView[]).map((view) => (

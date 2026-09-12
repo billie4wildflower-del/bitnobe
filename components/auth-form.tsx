@@ -44,15 +44,10 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
 
   return (
     <div className="w-full max-w-md">
-      <div className="mb-8 flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-          <Landmark className="h-6 w-6" />
-        </div>
-        <div>
-          <p className="text-lg font-semibold leading-tight tracking-tight">BitNobe</p>
-          <p className="text-sm text-muted-foreground leading-tight">Internal Banking Console</p>
-        </div>
-      </div>
+      <Link href="/business-banking" className="mb-8 flex items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground"><Landmark className="h-6 w-6" /></div>
+        <div><p className="text-lg font-semibold leading-tight tracking-tight">BitNobe</p><p className="text-sm text-muted-foreground leading-tight">Internal Banking Console</p></div>
+      </Link>
 
       <div className="rounded-2xl border bg-card p-8 shadow-sm">
         <h1 className="text-2xl font-semibold tracking-tight text-card-foreground">
