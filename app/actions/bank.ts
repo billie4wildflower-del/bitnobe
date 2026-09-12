@@ -12,6 +12,7 @@ async function getSessionUser() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) throw new Error("Unauthorized")
   await ensureAdminControlsTable()
+  await ensureBankingFeaturesTables()
   const control = await pool.query<{ status: "active" | "suspended" }>(
     `SELECT status FROM admin_user_control WHERE user_id = $1`,
     [session.user.id],
@@ -117,9 +118,156 @@ export async function getRecipients() {
     })
     .from(user)
     .innerJoin(bankAccount, eq(bankAccount.userId, user.id))
-    .where(ne(user.id, sessionUser.id))
+    .innerJoin(sql`transfer_contact`, sql`transfer_contact.contact_user_id = ${user.id}`)
+    .where(and(eq(sql`transfer_contact.owner_user_id`, sessionUser.id), ne(user.id, sessionUser.id)))
     .orderBy(user.name)
   return rows
+}
+
+async function ensureBankingFeaturesTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS transfer_contact (
+      owner_user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      contact_user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (owner_user_id, contact_user_id),
+      CHECK (owner_user_id <> contact_user_id)
+    );
+    CREATE TABLE IF NOT EXISTS card_application (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      card_type TEXT NOT NULL CHECK (card_type IN ('debit', 'credit')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'declined')),
+      background_check_status TEXT NOT NULL DEFAULT 'required' CHECK (background_check_status IN ('required', 'pending', 'passed', 'failed')),
+      admin_note TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS wire_transfer (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      amount INTEGER NOT NULL CHECK (amount > 0),
+      beneficiary_name TEXT NOT NULL,
+      bank_name TEXT NOT NULL,
+      routing_number TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'rejected')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `)
+}
+
+export async function addTransferContact(email: string) {
+  const sessionUser = await getSessionUser()
+  const normalizedEmail = email.trim().toLowerCase()
+  if (!normalizedEmail) return { ok: false as const, error: "Enter a member email." }
+  const [contact] = await db.select({ id: user.id }).from(user).where(eq(sql`lower(${user.email})`, normalizedEmail)).limit(1)
+  if (!contact) return { ok: false as const, error: "No registered member matches that email." }
+  if (contact.id === sessionUser.id) return { ok: false as const, error: "You cannot add yourself." }
+  await ensureBankingFeaturesTables()
+  await pool.query(`INSERT INTO transfer_contact (owner_user_id, contact_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [sessionUser.id, contact.id])
+  revalidatePath("/")
+  return { ok: true as const }
+}
+
+export async function removeTransferContact(contactUserId: string) {
+  const sessionUser = await getSessionUser()
+  await ensureBankingFeaturesTables()
+  await pool.query(`DELETE FROM transfer_contact WHERE owner_user_id = $1 AND contact_user_id = $2`, [sessionUser.id, contactUserId])
+  revalidatePath("/")
+  return { ok: true as const }
+}
+
+export type CardApplication = {
+  id: number
+  cardType: "debit" | "credit"
+  status: "pending" | "approved" | "declined"
+  backgroundCheckStatus: "required" | "pending" | "passed" | "failed"
+  adminNote: string
+  createdAt: Date
+}
+
+export async function getCardApplications() {
+  const sessionUser = await getSessionUser()
+  await ensureBankingFeaturesTables()
+  const result = await pool.query<CardApplication>(`SELECT id, card_type AS "cardType", status, background_check_status AS "backgroundCheckStatus", admin_note AS "adminNote", created_at AS "createdAt" FROM card_application WHERE user_id = $1 ORDER BY created_at DESC`, [sessionUser.id])
+  return result.rows
+}
+
+export async function applyForCard(cardType: "debit" | "credit") {
+  const sessionUser = await getSessionUser()
+  if (cardType !== "debit" && cardType !== "credit") return { ok: false as const, error: "Choose a valid card type." }
+  await ensureBankingFeaturesTables()
+  const existing = await pool.query(`SELECT id FROM card_application WHERE user_id = $1 AND card_type = $2 AND status IN ('pending', 'approved') LIMIT 1`, [sessionUser.id, cardType])
+  if (existing.rowCount) return { ok: false as const, error: `You already have an active ${cardType} card application.` }
+  await pool.query(`INSERT INTO card_application (user_id, card_type, background_check_status) VALUES ($1, $2, $3)`, [sessionUser.id, cardType, cardType === "credit" ? "pending" : "required"])
+  revalidatePath("/")
+  return { ok: true as const }
+}
+
+export type WireTransfer = { id: number; amount: number; beneficiaryName: string; bankName: string; routingNumber: string; accountNumber: string; status: "pending" | "processing" | "completed" | "rejected"; createdAt: Date }
+
+export async function getWireTransfers() {
+  const sessionUser = await getSessionUser()
+  await ensureBankingFeaturesTables()
+  const result = await pool.query<WireTransfer>(`SELECT id, amount, beneficiary_name AS "beneficiaryName", bank_name AS "bankName", routing_number AS "routingNumber", account_number AS "accountNumber", status, created_at AS "createdAt" FROM wire_transfer WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`, [sessionUser.id])
+  return result.rows
+}
+
+export async function requestWireTransfer(input: { amountCents: number; beneficiaryName: string; bankName: string; routingNumber: string; accountNumber: string }) {
+  const sessionUser = await getSessionUser()
+  const beneficiaryName = input.beneficiaryName.trim()
+  const bankName = input.bankName.trim()
+  const routingNumber = input.routingNumber.trim()
+  const accountNumber = input.accountNumber.trim()
+  if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) return { ok: false as const, error: "Enter a valid withdrawal amount." }
+  if (input.amountCents > 100_000_00) return { ok: false as const, error: "Wire withdrawals are limited to $100,000." }
+  if (!beneficiaryName || !bankName || !routingNumber || !accountNumber) return { ok: false as const, error: "Complete all wire details." }
+  await ensureBankingFeaturesTables()
+  const account = await ensureAccount()
+  if (account.balance < input.amountCents) return { ok: false as const, error: "Amount exceeds your available balance." }
+  await db.transaction(async (tx) => {
+    const [locked] = await tx.select().from(bankAccount).where(eq(bankAccount.userId, sessionUser.id)).for("update")
+    if (!locked || locked.balance < input.amountCents) throw new Error("INSUFFICIENT_FUNDS")
+    const [owner] = await tx.select({ name: user.name }).from(user).where(eq(user.id, sessionUser.id)).limit(1)
+    await tx.update(bankAccount).set({ balance: sql`${bankAccount.balance} - ${input.amountCents}` }).where(eq(bankAccount.userId, sessionUser.id))
+    await tx.insert(bankTransaction).values({
+      fromUserId: sessionUser.id,
+      toUserId: "wire",
+      fromName: owner?.name ?? "Member",
+      toName: beneficiaryName,
+      fromAccountNumber: locked.accountNumber,
+      toAccountNumber: accountNumber,
+      amount: input.amountCents,
+      note: `Wire withdrawal to ${bankName}`,
+    })
+    await tx.execute(sql`INSERT INTO wire_transfer (user_id, amount, beneficiary_name, bank_name, routing_number, account_number) VALUES (${sessionUser.id}, ${input.amountCents}, ${beneficiaryName}, ${bankName}, ${routingNumber}, ${accountNumber})`)
+  })
+  revalidatePath("/")
+  return { ok: true as const }
+}
+
+export type AdminCardApplication = CardApplication & { userId: string; userName: string; userEmail: string }
+
+export async function getAdminCardApplications() {
+  await requireAdmin()
+  await ensureBankingFeaturesTables()
+  const result = await pool.query<AdminCardApplication>(`SELECT ca.id, ca.user_id AS "userId", u.name AS "userName", u.email AS "userEmail", ca.card_type AS "cardType", ca.status, ca.background_check_status AS "backgroundCheckStatus", ca.admin_note AS "adminNote", ca.created_at AS "createdAt" FROM card_application ca JOIN "user" u ON u.id = ca.user_id ORDER BY ca.created_at DESC LIMIT 100`)
+  return result.rows
+}
+
+export async function reviewCardApplication(input: { applicationId: number; decision: "approve" | "decline"; backgroundCheck: "passed" | "failed"; adminNote: string }) {
+  const admin = await requireAdmin()
+  if (!Number.isInteger(input.applicationId)) return { ok: false as const, error: "Choose a valid application." }
+  if (input.decision === "approve" && input.backgroundCheck !== "passed") return { ok: false as const, error: "A credit card requires a passed background check before approval." }
+  await ensureBankingFeaturesTables()
+  const status = input.decision === "approve" ? "approved" : "declined"
+  const note = input.adminNote.trim().slice(0, 500) || `Reviewed by ${admin.email}`
+  const result = await pool.query(`UPDATE card_application SET status = $1, background_check_status = $2, admin_note = $3, updated_at = NOW() WHERE id = $4`, [status, input.backgroundCheck, note, input.applicationId])
+  if (!result.rowCount) return { ok: false as const, error: "Card application not found." }
+  revalidatePath("/admin")
+  revalidatePath("/")
+  return { ok: true as const }
 }
 
 export async function getRegisteredUsers() {
@@ -368,12 +516,15 @@ export async function postBankDebit(userId: string, amountCents: number, note: s
 export async function transfer(input: { toUserId: string; amountCents: number; note?: string }) {
   const sessionUser = await getSessionUser()
   await ensureAccount()
+  await ensureBankingFeaturesTables()
 
   const { toUserId, amountCents, note } = input
 
   if (!toUserId || toUserId === sessionUser.id) {
     return { ok: false as const, error: "Choose a valid recipient." }
   }
+  const contact = await pool.query(`SELECT 1 FROM transfer_contact WHERE owner_user_id = $1 AND contact_user_id = $2`, [sessionUser.id, toUserId])
+  if (!contact.rowCount) return { ok: false as const, error: "Add this member to your transfer contacts first." }
   if (!Number.isInteger(amountCents) || amountCents <= 0) {
     return { ok: false as const, error: "Enter a valid amount." }
   }

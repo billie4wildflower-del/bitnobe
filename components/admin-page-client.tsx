@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState, useTransition } from "react"
 import { Banknote, CheckCircle2, LockKeyhole, MessageCircle, Search, Send, ShieldCheck, UnlockKeyhole, UserCog } from "lucide-react"
 
-import { getAdminConversation, getAdminDashboard, postBankCredit, postBankDebit, revokeUserSessions, sendAdminSupportMessage, updateAdminUserControl, type AdminUser, type SupportMessage } from "@/app/actions/bank"
+import { getAdminCardApplications, getAdminConversation, getAdminDashboard, postBankCredit, postBankDebit, reviewCardApplication, revokeUserSessions, sendAdminSupportMessage, updateAdminUserControl, type AdminCardApplication, type AdminUser, type SupportMessage } from "@/app/actions/bank"
 import { authClient } from "@/lib/auth-client"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,8 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const [cardApplications, setCardApplications] = useState<AdminCardApplication[]>([])
+  const [backgroundChecks, setBackgroundChecks] = useState<Record<number, "passed" | "failed">>({})
   const selectedUser = users.find((user) => user.id === selectedId)
   const filteredUsers = users.filter((user) => {
     const query = search.trim().toLowerCase()
@@ -50,6 +52,8 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
     const interval = window.setInterval(() => void load(), 5000)
     return () => { active = false; window.clearInterval(interval) }
   }, [selectedId])
+
+  useEffect(() => { void getAdminCardApplications().then(setCardApplications) }, [])
 
   function submitReply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -128,6 +132,17 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
     })
   }
 
+  function reviewCard(applicationId: number, decision: "approve" | "decline", backgroundCheck: "passed" | "failed") {
+    setError(null)
+    setNotice(null)
+    startTransition(async () => {
+      const result = await reviewCardApplication({ applicationId, decision, backgroundCheck, adminNote: "Reviewed in operations console" })
+      if (!result.ok) { setError(result.error); return }
+      setNotice("Card application updated.")
+      setCardApplications(await getAdminCardApplications())
+    })
+  }
+
   async function signOut() {
     await authClient.signOut()
     window.location.href = "/sign-in"
@@ -141,6 +156,9 @@ export function AdminPageClient({ name, email, initialUsers }: { name: string; e
           <div className="flex items-center gap-3 text-right"><div className="hidden sm:block"><p className="text-sm font-medium">{name}</p><p className="text-xs text-muted-foreground">{email}</p></div><Button variant="outline" size="sm" onClick={signOut}>Sign out</Button></div>
         </div>
       </header>
+      <div className="mx-auto max-w-7xl px-4 pt-6 sm:px-6">
+        <Card><CardHeader><CardTitle>Card application review</CardTitle><CardDescription>Credit cards require a passed background check before approval.</CardDescription></CardHeader><CardContent className="space-y-2">{cardApplications.length === 0 ? <p className="text-sm text-muted-foreground">No card applications awaiting review.</p> : cardApplications.map((application) => <div key={application.id} className="flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm"><span className="min-w-44 flex-1"><span className="font-medium">{application.userName}</span><span className="ml-2 text-muted-foreground">{application.userEmail}</span><span className="ml-2 capitalize">{application.cardType} card</span></span>{application.cardType === "credit" && application.status === "pending" && <select value={backgroundChecks[application.id] ?? "failed"} onChange={(event) => setBackgroundChecks((current) => ({ ...current, [application.id]: event.target.value as "passed" | "failed" }))} aria-label={`Background check for ${application.userName}`} className="h-8 rounded-lg border border-input bg-background px-2 text-sm"><option value="failed">Check failed</option><option value="passed">Check passed</option></select>}<span className="text-muted-foreground">{application.backgroundCheckStatus}</span>{application.status === "pending" && <><Button size="sm" variant="outline" onClick={() => reviewCard(application.id, "approve", application.cardType === "credit" ? (backgroundChecks[application.id] ?? "failed") : "passed")} disabled={pending}>Approve</Button><Button size="sm" variant="destructive" onClick={() => reviewCard(application.id, "decline", "failed")} disabled={pending}>Decline</Button></>}</div>)}</CardContent></Card>
+      </div>
       <div className="mx-auto grid max-w-7xl gap-4 px-4 py-6 sm:px-6 lg:grid-cols-[19rem_1fr]">
         <Card className="h-fit">
           <CardHeader><CardTitle>Members</CardTitle><CardDescription>Support activity and account access.</CardDescription></CardHeader>
