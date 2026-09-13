@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Landmark, LogOut, ShieldCheck, UserRound } from "lucide-react"
+import { LogOut, ShieldCheck, UserRound } from "lucide-react"
 
 import { authClient } from "@/lib/auth-client"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { BrandMark } from "@/components/brand-mark"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,9 +52,7 @@ export function TopNav({
     <header className="sticky top-0 z-20 border-b bg-card/80 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Link href="/business-banking" className="flex items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Landmark className="h-5 w-5" />
-          </div>
+          <BrandMark />
           <div className="leading-tight">
             <p className="text-sm font-semibold tracking-tight">BitNobe</p>
             <p className="text-xs text-muted-foreground">Member banking</p>

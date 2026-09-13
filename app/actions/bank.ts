@@ -523,6 +523,7 @@ export type AdminUser = {
   id: string
   name: string
   email: string
+  emailVerified: boolean
   image: string | null
   createdAt: Date
   accountNumber: string | null
@@ -541,7 +542,7 @@ export async function getAdminDashboard() {
   await ensureSupportMessagesTable()
   await ensureAdminControlsTable()
   const result = await pool.query<AdminUser>(`
-    SELECT u.id, u.name, u.email, u.image, u."createdAt",
+    SELECT u.id, u.name, u.email, u."emailVerified", u.image, u."createdAt",
       ba."accountNumber", COALESCE(ba.balance, 0)::integer AS balance,
       COALESCE(auc.status, 'active') AS status,
       COALESCE(auc.admin_note, '') AS "adminNote",
@@ -564,6 +565,16 @@ export async function getAdminDashboard() {
     ORDER BY MAX(sm.created_at) DESC NULLS LAST, u.name ASC
   `)
   return result.rows
+}
+
+export async function verifyAdminUser(userId: string) {
+  const admin = await requireAdminRole("manager")
+  if (!userId || userId === admin.id) return { ok: false as const, error: "You cannot change your own verification." }
+  const result = await db.update(user).set({ emailVerified: true, updatedAt: new Date() }).where(eq(user.id, userId)).returning({ id: user.id })
+  if (result.length === 0) return { ok: false as const, error: "Member not found." }
+  await logAdminAction(admin.id, "user_email_verified", userId)
+  revalidatePath("/admin")
+  return { ok: true as const }
 }
 
 export async function updateAdminUserControl(input: {

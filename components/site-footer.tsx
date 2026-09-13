@@ -1,5 +1,6 @@
 import Link from "next/link"
-import { Landmark, ShieldCheck } from "lucide-react"
+import { ShieldCheck } from "lucide-react"
+import { BrandMark } from "@/components/brand-mark"
 
 export function SiteFooter() {
   return (
@@ -8,7 +9,7 @@ export function SiteFooter() {
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_repeat(4,1fr)]">
           <div>
             <Link href="/business-banking" className="flex items-center gap-3 text-white">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#d9f06c] text-[#10251f]"><Landmark className="h-5 w-5" /></span>
+              <BrandMark inverse />
               <span className="font-semibold tracking-tight">BitNobe</span>
             </Link>
             <p className="mt-5 max-w-xs text-sm leading-6">Modern banking tools for members and teams that want more control over their money.</p>

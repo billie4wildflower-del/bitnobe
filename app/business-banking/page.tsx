@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Download,
   Globe2,
-  Landmark,
   LockKeyhole,
   Menu,
   ReceiptText,
@@ -16,6 +15,7 @@ import {
   UsersRound,
   WalletCards,
 } from "lucide-react"
+import { BrandMark } from "@/components/brand-mark"
 
 export const metadata = {
   title: "Business Banking | BitNobe",
@@ -39,7 +39,7 @@ export default function BusinessBankingPage() {
         <div className="absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.06)_1px,transparent_1px)] [background-size:48px_48px]" />
         <div className="relative mx-auto max-w-7xl px-5 sm:px-8">
           <nav className="flex h-20 items-center justify-between border-b border-white/10">
-            <Link href="/business-banking" className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#d9f06c] text-[#10251f]"><Landmark className="h-5 w-5" /></span><span className="font-semibold tracking-tight">BitNobe <span className="font-normal text-white/55">for business</span></span></Link>
+            <Link href="/business-banking" className="flex items-center gap-3"><BrandMark inverse /><span className="font-semibold tracking-tight">BitNobe <span className="font-normal text-white/55">for business</span></span></Link>
             <div className="hidden items-center gap-7 text-sm text-white/70 md:flex"><a href="#solutions" className="hover:text-white">Solutions</a><a href="#security" className="hover:text-white">Security</a><a href="#downloads" className="hover:text-white">Downloads</a><Link href="/sign-in" className="rounded-full border border-white/20 px-4 py-2 text-white hover:bg-white/10">Sign in</Link></div>
             <button type="button" className="md:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></button>
           </nav>

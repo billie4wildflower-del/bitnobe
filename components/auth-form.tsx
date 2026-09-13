@@ -48,7 +48,12 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
       router.push(isSignUp ? "/sign-in?verified=pending" : redirectTo)
       router.refresh()
     } catch (err) {
-      setError(isSignUp ? "Could not create account. Try a different email." : "Invalid email or password.")
+      const authError = err instanceof Error ? err.message.toLowerCase() : ""
+      setError(isSignUp
+        ? "Could not create account. Try a different email."
+        : authError.includes("verify")
+          ? "Your email has not been verified yet. Ask BitNobe support to verify your account."
+          : "Invalid email or password.")
       setLoading(false)
     }
   }
