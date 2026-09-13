@@ -374,12 +374,11 @@ export async function getAdminCardApplications() {
 export async function reviewCardApplication(input: { applicationId: number; decision: "approve" | "decline"; backgroundCheck: "passed" | "failed"; creditLimitCents: number; adminNote: string }) {
   const admin = await requireAdminRole("manager")
   if (!Number.isInteger(input.applicationId)) return { ok: false as const, error: "Choose a valid application." }
-  if (input.decision === "approve" && input.backgroundCheck !== "passed") return { ok: false as const, error: "A credit card requires a passed background check before approval." }
+  if (input.decision === "approve") return { ok: false as const, error: "Card approvals are temporarily unavailable for all members." }
   if (!Number.isInteger(input.creditLimitCents) || input.creditLimitCents < 0 || input.creditLimitCents > 100_000_00) return { ok: false as const, error: "Enter a credit limit between $0 and $100,000." }
   await ensureBankingFeaturesTables()
-  const status = input.decision === "approve" ? "approved" : "declined"
   const note = input.adminNote.trim().slice(0, 500) || `Reviewed by ${admin.email}`
-  const result = await pool.query(`UPDATE card_application SET status = $1, background_check_status = $2, credit_limit = $3, admin_note = $4, updated_at = NOW() WHERE id = $5`, [status, input.backgroundCheck, input.creditLimitCents, note, input.applicationId])
+  const result = await pool.query(`UPDATE card_application SET status = $1, background_check_status = $2, credit_limit = $3, admin_note = $4, updated_at = NOW() WHERE id = $5`, ["declined", input.backgroundCheck, input.creditLimitCents, note, input.applicationId])
   if (!result.rowCount) return { ok: false as const, error: "Card application not found." }
   revalidatePath("/admin")
   revalidatePath("/")
