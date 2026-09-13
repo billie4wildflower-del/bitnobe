@@ -70,6 +70,7 @@ export function TopNav({
             </button>
           ))}
           <Link href="/support" className={`rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors ${activeView === "support" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>Support</Link>
+          <Link href="/cards" className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">Cards</Link>
         </nav>
 
         <DropdownMenu>

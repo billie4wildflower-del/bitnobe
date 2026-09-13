@@ -197,6 +197,7 @@ async function ensureBankingFeaturesTables() {
       annual_income INTEGER NOT NULL DEFAULT 0,
       monthly_housing_payment INTEGER NOT NULL DEFAULT 0,
       bank_account_type TEXT NOT NULL DEFAULT '',
+      credit_limit INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -213,6 +214,7 @@ async function ensureBankingFeaturesTables() {
     ALTER TABLE card_application ADD COLUMN IF NOT EXISTS annual_income INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE card_application ADD COLUMN IF NOT EXISTS monthly_housing_payment INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE card_application ADD COLUMN IF NOT EXISTS bank_account_type TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS credit_limit INTEGER NOT NULL DEFAULT 0;
     CREATE TABLE IF NOT EXISTS wire_transfer (
       id SERIAL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
@@ -259,6 +261,7 @@ export type CardApplication = {
   status: "pending" | "approved" | "declined"
   backgroundCheckStatus: "required" | "pending" | "passed" | "failed"
   adminNote: string
+  creditLimit: number
   createdAt: Date
   applicant?: CreditApplicationInput
 }
@@ -282,7 +285,7 @@ export type CreditApplicationInput = {
 export async function getCardApplications() {
   const sessionUser = await getSessionUser()
   await ensureBankingFeaturesTables()
-  const result = await pool.query<CardApplication>(`SELECT id, card_type AS "cardType", status, background_check_status AS "backgroundCheckStatus", admin_note AS "adminNote", created_at AS "createdAt" FROM card_application WHERE user_id = $1 ORDER BY created_at DESC`, [sessionUser.id])
+  const result = await pool.query<CardApplication>(`SELECT id, card_type AS "cardType", status, background_check_status AS "backgroundCheckStatus", admin_note AS "adminNote", credit_limit AS "creditLimit", created_at AS "createdAt" FROM card_application WHERE user_id = $1 ORDER BY created_at DESC`, [sessionUser.id])
   return result.rows
 }
 
@@ -364,14 +367,15 @@ export async function getAdminCardApplications() {
   return result.rows
 }
 
-export async function reviewCardApplication(input: { applicationId: number; decision: "approve" | "decline"; backgroundCheck: "passed" | "failed"; adminNote: string }) {
+export async function reviewCardApplication(input: { applicationId: number; decision: "approve" | "decline"; backgroundCheck: "passed" | "failed"; creditLimitCents: number; adminNote: string }) {
   const admin = await requireAdminRole("manager")
   if (!Number.isInteger(input.applicationId)) return { ok: false as const, error: "Choose a valid application." }
   if (input.decision === "approve" && input.backgroundCheck !== "passed") return { ok: false as const, error: "A credit card requires a passed background check before approval." }
+  if (!Number.isInteger(input.creditLimitCents) || input.creditLimitCents < 0 || input.creditLimitCents > 100_000_00) return { ok: false as const, error: "Enter a credit limit between $0 and $100,000." }
   await ensureBankingFeaturesTables()
   const status = input.decision === "approve" ? "approved" : "declined"
   const note = input.adminNote.trim().slice(0, 500) || `Reviewed by ${admin.email}`
-  const result = await pool.query(`UPDATE card_application SET status = $1, background_check_status = $2, admin_note = $3, updated_at = NOW() WHERE id = $4`, [status, input.backgroundCheck, note, input.applicationId])
+  const result = await pool.query(`UPDATE card_application SET status = $1, background_check_status = $2, credit_limit = $3, admin_note = $4, updated_at = NOW() WHERE id = $5`, [status, input.backgroundCheck, input.creditLimitCents, note, input.applicationId])
   if (!result.rowCount) return { ok: false as const, error: "Card application not found." }
   revalidatePath("/admin")
   revalidatePath("/")

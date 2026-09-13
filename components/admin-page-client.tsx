@@ -90,6 +90,7 @@ export function AdminPageClient({ name, email, role, initialUsers }: { name: str
   const [pending, startTransition] = useTransition()
   const [cardApplications, setCardApplications] = useState<AdminCardApplication[]>([])
   const [backgroundChecks, setBackgroundChecks] = useState<Record<number, "passed" | "failed">>({})
+  const [creditLimits, setCreditLimits] = useState<Record<number, string>>({})
   const [auditEntries, setAuditEntries] = useState<AdminAuditEntry[]>([])
   const [riskScore, setRiskScore] = useState("0")
   const [fraudFreeze, setFraudFreeze] = useState(false)
@@ -209,7 +210,7 @@ export function AdminPageClient({ name, email, role, initialUsers }: { name: str
     setError(null)
     setNotice(null)
     startTransition(async () => {
-      const result = await reviewCardApplication({ applicationId, decision, backgroundCheck, adminNote: "Reviewed in operations console" })
+      const result = await reviewCardApplication({ applicationId, decision, backgroundCheck, creditLimitCents: Math.round(Number(creditLimits[applicationId] || "5000") * 100), adminNote: "Reviewed in operations console" })
       if (!result.ok) { setError(result.error); return }
       setNotice("Card application updated.")
       setCardApplications(await getAdminCardApplications())
