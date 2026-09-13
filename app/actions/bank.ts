@@ -61,6 +61,7 @@ export async function ensureAccount() {
 export async function getAccountSummary() {
   const sessionUser = await getSessionUser()
   const acct = await ensureAccount()
+  const control = await pool.query<{ status: "active" | "dormant" | "restricted" | "closed" | "suspended"; fraud_freeze: boolean }>(`SELECT status, fraud_freeze FROM admin_user_control WHERE user_id = $1`, [sessionUser.id])
 
   const txns = await db
     .select()
@@ -75,6 +76,8 @@ export async function getAccountSummary() {
       accountNumber: acct.accountNumber,
       routingNumber: acct.routingNumber,
       balance: acct.balance,
+      status: control.rows[0]?.status ?? "active",
+      fraudFreeze: control.rows[0]?.fraud_freeze ?? false,
     },
     transactions: txns,
     isAdmin: Boolean(getAdminRole(sessionUser.email) || isAdminEmail(sessionUser.email)),
@@ -84,6 +87,7 @@ export async function getAccountSummary() {
 export async function getProfile() {
   const sessionUser = await getSessionUser()
   const acct = await ensureAccount()
+  const control = await pool.query<{ status: "active" | "dormant" | "restricted" | "closed" | "suspended"; fraud_freeze: boolean }>(`SELECT status, fraud_freeze FROM admin_user_control WHERE user_id = $1`, [sessionUser.id])
   return {
     user: {
       id: sessionUser.id,
@@ -97,6 +101,8 @@ export async function getProfile() {
       routingNumber: acct.routingNumber,
       balance: acct.balance,
       openedAt: acct.createdAt,
+      status: control.rows[0]?.status ?? "active",
+      fraudFreeze: control.rows[0]?.fraud_freeze ?? false,
     },
     isAdmin: Boolean(getAdminRole(sessionUser.email) || isAdminEmail(sessionUser.email)),
   }
