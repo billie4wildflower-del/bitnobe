@@ -11,6 +11,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+const emailProviders = [
+  { label: "Gmail", domain: "gmail.com" },
+  { label: "Outlook", domain: "outlook.com" },
+  { label: "Yahoo", domain: "yahoo.com" },
+  { label: "Comcast", domain: "comcast.net" },
+  { label: "Windstream", domain: "windstream.net" },
+  { label: "Optimum", domain: "optimum.net" },
+  { label: "Suddenlink", domain: "suddenlink.net" },
+] as const
+
 export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-up"; redirectTo?: string }) {
   const router = useRouter()
   const isSignUp = mode === "sign-up"
@@ -18,6 +28,7 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -40,6 +51,12 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
       setError(isSignUp ? "Could not create account. Try a different email." : "Invalid email or password.")
       setLoading(false)
     }
+  }
+
+  function chooseProvider(domain: string) {
+    const localPart = email.split("@")[0]?.trim() ?? ""
+    setEmail(`${localPart}@${domain}`)
+    setSelectedProvider(domain)
   }
 
   return (
@@ -84,6 +101,19 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
               required
               autoComplete="email"
             />
+            <div className="flex flex-wrap gap-1.5" aria-label="Email provider options">
+              {emailProviders.map((provider) => (
+                <button
+                  key={provider.domain}
+                  type="button"
+                  onClick={() => chooseProvider(provider.domain)}
+                  className={`rounded-md border px-2 py-1 text-xs transition-colors ${selectedProvider === provider.domain ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                >
+                  {provider.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">Choose your email provider to complete the address. Sign in still uses your BitNobe email and password.</p>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="password">Password</Label>
