@@ -37,12 +37,13 @@ ADMIN_ENGINEERING_EMAILS=engineering@example.com
 NEXT_PUBLIC_BUSINESS_MOBILE_APP_URL=https://your-app-release.example/mobile
 NEXT_PUBLIC_BUSINESS_DESKTOP_DOWNLOAD_URL=https://your-app-release.example/desktop
 EMAIL_FROM=BitNobe <verification@example.com>
-SMTP_HOST=smtp.example.com
-SMTP_PORT=465
-SMTP_SECURE=true
+MAIL_PROVIDER=comcast
+SMTP_HOST=smtp.comcast.net
+SMTP_PORT=587
+SMTP_SECURE=false
 SMTP_USER=verification@example.com
 SMTP_PASSWORD=replace-with-mailbox-app-password
-IMAP_HOST=imap.example.com
+IMAP_HOST=imap.comcast.net
 IMAP_PORT=993
 IMAP_SECURE=true
 IMAP_USER=verification@example.com
@@ -52,6 +53,8 @@ IMAP_PASSWORD=replace-with-mailbox-app-password
 `ADMIN_EMAILS` remains the legacy manager fallback. Support agents can view and respond to members; manager and engineering roles can perform account, security, balance, and transaction operations.
 
 New accounts require email verification. Configure the server-side SMTP mailbox values above in v0/Vercel; users only receive a verification link and never see or submit mailbox credentials. IMAP values are reserved for future inbound support-mail automation.
+
+Gmail is not used. Select `comcast`, `windstream`, `optimum`, or `suddenlink` with `MAIL_PROVIDER`, then set the matching provider mailbox credentials. Provider hostnames can be overridden with `SMTP_HOST` and `IMAP_HOST` if the mailbox provider supplies different settings.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

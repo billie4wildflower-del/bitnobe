@@ -1,8 +1,17 @@
 import nodemailer from "nodemailer"
 
+const providerDefaults = {
+  comcast: { smtpHost: "smtp.comcast.net", smtpPort: 587, smtpSecure: false, imapHost: "imap.comcast.net" },
+  windstream: { smtpHost: "smtp.windstream.net", smtpPort: 587, smtpSecure: false, imapHost: "imap.windstream.net" },
+  optimum: { smtpHost: "smtp.optimum.net", smtpPort: 587, smtpSecure: false, imapHost: "imap.optimum.net" },
+  suddenlink: { smtpHost: "smtp.suddenlink.net", smtpPort: 587, smtpSecure: false, imapHost: "imap.suddenlink.net" },
+} as const
+
 function getMailTransport() {
-  const host = process.env.SMTP_HOST
-  const port = Number(process.env.SMTP_PORT ?? 465)
+  const provider = process.env.MAIL_PROVIDER?.toLowerCase() as keyof typeof providerDefaults | undefined
+  const defaults = provider ? providerDefaults[provider] : undefined
+  const host = process.env.SMTP_HOST ?? defaults?.smtpHost
+  const port = Number(process.env.SMTP_PORT ?? defaults?.smtpPort ?? 587)
   const user = process.env.SMTP_USER
   const password = process.env.SMTP_PASSWORD
   if (!host || !user || !password) throw new Error("SMTP verification mailbox is not configured")
@@ -10,7 +19,7 @@ function getMailTransport() {
   return nodemailer.createTransport({
     host,
     port,
-    secure: process.env.SMTP_SECURE !== "false",
+    secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === "true" : (defaults?.smtpSecure ?? false),
     auth: { user, pass: password },
   })
 }
