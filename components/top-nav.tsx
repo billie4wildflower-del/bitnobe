@@ -49,41 +49,47 @@ export function TopNav({
   }
 
   return (
-    <header className="sticky top-0 z-20 border-b bg-card/80 backdrop-blur">
+    <header className="sticky top-0 z-20 border-b border-border/70 bg-white/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <Link href="/business-banking" className="flex items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <BrandMark />
+        <Link href="/business-banking" className="flex items-center gap-3 rounded-full outline-none ring-offset-2 transition-all hover:opacity-95 focus-visible:ring-2 focus-visible:ring-ring">
+          <BrandMark className="h-10 w-10" />
           <div className="leading-tight">
-            <p className="text-sm font-semibold tracking-tight">BitNobe</p>
-            <p className="text-xs text-muted-foreground">Member banking</p>
+            <p className="text-sm font-semibold tracking-[-0.02em] text-foreground">BitNobe</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Member banking</p>
           </div>
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">
+        <nav className="hidden items-center gap-1 rounded-full border border-border/80 bg-muted/30 p-1 md:flex" aria-label="Primary navigation">
           {(["overview", "accounts", "transfers", "activity"] as WorkspaceView[]).map((view) => (
-            <button key={view} type="button" onClick={() => onViewChange?.(view)} className={`rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors ${
-                activeView === view ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            <button
+              key={view}
+              type="button"
+              onClick={() => onViewChange?.(view)}
+              className={`rounded-full px-3 py-2 text-sm font-medium capitalize transition-all ${
+                activeView === view
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-white hover:text-foreground"
               }`}
             >
               {view}
             </button>
           ))}
-          <Link href="/support" className={`rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors ${activeView === "support" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>Support</Link>
-          <Link href="/cards" className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">Cards</Link>
+          <Link href="/support" className={`rounded-full px-3 py-2 text-sm font-medium capitalize transition-all ${activeView === "support" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-white hover:text-foreground"}`}>Support</Link>
+          <Link href="/cards" className="rounded-full px-3 py-2 text-sm font-medium text-muted-foreground transition-all hover:bg-white hover:text-foreground">Cards</Link>
         </nav>
 
         <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-2 rounded-md px-2 py-1.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-accent text-accent-foreground text-xs font-medium">
+          <DropdownMenuTrigger className="flex items-center gap-2 rounded-full border border-border/80 bg-muted/30 px-2 py-1.5 outline-none transition-colors hover:bg-white focus-visible:ring-2 focus-visible:ring-ring">
+            <Avatar className="h-8 w-8 ring-2 ring-white">
+              <AvatarFallback className="bg-[#d9f06c] text-[#10251f] text-xs font-semibold">
                 {initials(name)}
               </AvatarFallback>
             </Avatar>
-            <span className="hidden text-sm font-medium sm:inline">{name}</span>
+            <span className="hidden text-sm font-medium text-foreground sm:inline">{name}</span>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-56 rounded-2xl border border-border/80 bg-white p-1 shadow-lg">
             <DropdownMenuLabel>
-              <p className="text-sm font-medium">{name}</p>
+              <p className="text-sm font-medium text-foreground">{name}</p>
               <p className="text-xs font-normal text-muted-foreground">{email}</p>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -91,13 +97,15 @@ export function TopNav({
               <UserRound className="mr-2 h-4 w-4" />
               Profile & security
             </DropdownMenuItem>
-            {isAdmin && <Link
-              href="/admin"
-              className="relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-none select-none hover:bg-accent focus:bg-accent focus:text-accent-foreground"
-            >
-              <ShieldCheck className="mr-2 h-4 w-4" />
-              Operations console
-            </Link>}
+            {isAdmin && (
+              <Link
+                href="/admin"
+                className="relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-none select-none hover:bg-accent focus:bg-accent focus:text-accent-foreground"
+              >
+                <ShieldCheck className="mr-2 h-4 w-4" />
+                Operations console
+              </Link>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
