@@ -101,19 +101,6 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
               required
               autoComplete="email"
             />
-            <div className="flex flex-wrap gap-1.5" aria-label="Email provider options">
-              {emailProviders.map((provider) => (
-                <button
-                  key={provider.domain}
-                  type="button"
-                  onClick={() => chooseProvider(provider.domain)}
-                  className={`rounded-md border px-2 py-1 text-xs transition-colors ${selectedProvider === provider.domain ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-                >
-                  {provider.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">Choose your email provider to complete the address. Sign in still uses your BitNobe email and password.</p>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="password">Password</Label>
@@ -141,6 +128,23 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
             {isSignUp ? "Create account" : "Sign in"}
           </Button>
         </form>
+
+        <div className="mt-6 border-t pt-5">
+          <p className="text-sm font-medium text-card-foreground">Email options</p>
+          <p className="mt-1 text-xs text-muted-foreground">Choose a provider to complete your email. Authentication still uses the form above.</p>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Email provider options">
+            {emailProviders.map((provider) => (
+              <button
+                key={provider.domain}
+                type="button"
+                onClick={() => chooseProvider(provider.domain)}
+                className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${selectedProvider === provider.domain ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                {provider.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
           {isSignUp ? "Already have an account? " : "Don't have an account? "}

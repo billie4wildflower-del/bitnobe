@@ -1,7 +1,7 @@
 "use client"
 
 import { FormEvent, useEffect, useState, useTransition } from "react"
-import { CheckCircle2, CreditCard, Landmark, Plus, ShieldCheck, Trash2, Wifi } from "lucide-react"
+import { CheckCircle2, CreditCard, Landmark, MapPin, Plus, ShieldCheck, Trash2, Wifi } from "lucide-react"
 
 import { addTransferContact, applyForCard, getCardApplications, getWireTransfers, removeTransferContact, requestWireTransfer, type CardApplication, type CreditApplicationInput, type WireTransfer } from "@/app/actions/bank"
 import { formatCents, parseDollarsToCents, maskAccount } from "@/lib/format"
@@ -35,6 +35,34 @@ function BankCard({ type, application, onApply, onSelect, selected, accountBalan
       <div className="grid gap-2 sm:grid-cols-2"><Button type="button" variant="ghost" onClick={onSelect}>View details</Button><Button className="w-full" variant={isCredit ? "default" : "outline"} onClick={onApply} disabled={pending || (!!application && application.status !== "declined")}><CreditCard className="mr-2 h-4 w-4" />{application?.status === "approved" ? "Card approved" : application?.status === "pending" ? "Application submitted" : isCredit ? "Apply for this card" : "Enroll this debit card"}</Button></div>
     </div>
   </div>
+}
+
+function CardAccessDetails({ type, application, email }: { type: "debit" | "credit"; application?: CardApplication; email: string }) {
+  const isApproved = application?.status === "approved"
+  const label = type === "credit" ? "Rewards Visa" : "Member Debit"
+
+  return <Card className="border-primary/20 bg-primary/[0.03]">
+    <CardHeader className="flex flex-row items-start justify-between gap-4">
+      <div>
+        <CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" />{label} access details</CardTitle>
+        <CardDescription>Protected card information for your BitNobe account.</CardDescription>
+      </div>
+      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${isApproved ? "bg-emerald-500/10 text-emerald-700" : "bg-muted text-muted-foreground"}`}>{isApproved ? "Active" : "Not issued"}</span>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-lg border bg-background p-3"><p className="text-xs text-muted-foreground">Card number</p><p className="mt-1 font-mono text-sm">•••• •••• •••• 4826</p></div>
+        <div className="rounded-lg border bg-background p-3"><p className="text-xs text-muted-foreground">Expiration</p><p className="mt-1 font-mono text-sm">•• / ••</p></div>
+        <div className="rounded-lg border bg-background p-3"><p className="text-xs text-muted-foreground">PIN</p><p className="mt-1 text-sm font-medium">Set securely in app</p></div>
+        <div className="rounded-lg border bg-background p-3"><p className="text-xs text-muted-foreground">Security code</p><p className="mt-1 font-mono text-sm">•••</p></div>
+      </div>
+      <div className="flex flex-col gap-3 border-t pt-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex gap-3"><MapPin className="h-4 w-4 shrink-0 text-primary" /><div><p className="font-medium">Billing address</p><p className="text-xs text-muted-foreground">{isApproved ? "Verified address on file" : "Collected during secure application"}</p></div></div>
+        <p className="text-xs text-muted-foreground">Cardholder: {email}</p>
+      </div>
+      <p className="text-xs text-muted-foreground">For your protection, full card numbers, PINs, and security codes are never displayed or requested in this workspace. Use the verified BitNobe channel for any card servicing request.</p>
+    </CardContent>
+  </Card>
 }
 
 function CreditApplicationForm({ email, onSubmit, onCancel, pending }: { email: string; onSubmit: (input: CreditApplicationInput) => void; onCancel: () => void; pending: boolean }) {
@@ -96,6 +124,7 @@ export function MemberFinancialControls({ mode = "all", recipients, email, accou
       <Card><CardHeader className="border-b"><CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" />Cards and payment access</CardTitle><CardDescription>Select a card to review its balance and application status.</CardDescription></CardHeader><CardContent className="grid gap-4 p-4 lg:grid-cols-2"><BankCard type="debit" application={applications.find((application) => application.cardType === "debit")} accountBalance={accountBalance} selected={selectedCard === "debit"} onSelect={() => setSelectedCard("debit")} onApply={() => run(() => applyForCard("debit"), "Debit card application submitted.")} pending={pending} /><BankCard type="credit" application={applications.find((application) => application.cardType === "credit")} selected={selectedCard === "credit"} onSelect={() => setSelectedCard("credit")} onApply={() => setCreditFormOpen(true)} pending={pending} /></CardContent></Card>
       {creditFormOpen && <CreditApplicationForm email={email} onCancel={() => setCreditFormOpen(false)} onSubmit={(input) => run(() => applyForCard("credit", input), "Credit application submitted for background review.")} pending={pending} />}
       <Card><CardHeader><CardTitle>{selectedCard === "credit" ? "Credit card account" : "Debit card account"}</CardTitle><CardDescription>{selectedCard === "credit" ? "Your approved credit line and remaining spending capacity." : "Your debit card draws directly from your BitNobe checking balance."}</CardDescription></CardHeader><CardContent className="grid gap-3 sm:grid-cols-3"><div className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">{selectedCard === "credit" ? "Credit limit" : "Daily access"}</p><p className="mt-1 text-lg font-semibold">{selectedCard === "credit" ? formatCents(applications.find((application) => application.cardType === "credit")?.creditLimit ?? 0) : "Based on balance"}</p></div><div className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Current balance</p><p className="mt-1 text-lg font-semibold">{selectedCard === "credit" ? formatCents(applications.find((application) => application.cardType === "credit")?.currentBalance ?? 0) : formatCents(accountBalance)}</p></div><div className="rounded-lg bg-primary/10 p-3"><p className="text-xs text-muted-foreground">Available to spend</p><p className="mt-1 text-lg font-semibold text-primary">{selectedCard === "credit" ? formatCents(applications.find((application) => application.cardType === "credit")?.availableCredit ?? 0) : formatCents(accountBalance)}</p></div></CardContent></Card>
+      <CardAccessDetails type={selectedCard} application={applications.find((application) => application.cardType === selectedCard)} email={email} />
       <div className="grid gap-3 sm:grid-cols-3"><div className="flex gap-3 rounded-xl border bg-card p-4"><ShieldCheck className="h-5 w-5 shrink-0 text-primary" /><div><p className="text-sm font-medium">Fraud monitoring</p><p className="mt-1 text-xs text-muted-foreground">Every purchase is monitored for unusual activity.</p></div></div><div className="flex gap-3 rounded-xl border bg-card p-4"><CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" /><div><p className="text-sm font-medium">No hidden fees</p><p className="mt-1 text-xs text-muted-foreground">Clear pricing before you submit an application.</p></div></div><div className="flex gap-3 rounded-xl border bg-card p-4"><Landmark className="h-5 w-5 shrink-0 text-primary" /><div><p className="text-sm font-medium">Member support</p><p className="mt-1 text-xs text-muted-foreground">Our operations team reviews credit applications.</p></div></div></div>
     </>}
     {mode !== "cards" && <>
