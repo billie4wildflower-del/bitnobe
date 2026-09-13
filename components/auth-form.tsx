@@ -34,7 +34,7 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
         const { error } = await authClient.signIn.email({ email, password })
         if (error) throw new Error(error.message)
       }
-      router.push(redirectTo)
+      router.push(isSignUp ? "/sign-in?verified=pending" : redirectTo)
       router.refresh()
     } catch (err) {
       setError(isSignUp ? "Could not create account. Try a different email." : "Invalid email or password.")
@@ -55,7 +55,7 @@ export function AuthForm({ mode, redirectTo = "/" }: { mode: "sign-in" | "sign-u
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {isSignUp
-            ? "Register to hold a balance and transfer funds to other members."
+            ? "Register to hold a balance and transfer funds to other members. Check your email to verify access."
             : "Welcome back. Access your account to manage transfers."}
         </p>
 

@@ -3,7 +3,7 @@ import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { AuthForm } from "@/components/auth-form"
 
-export default async function SignInPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+export default async function SignInPage({ searchParams }: { searchParams: Promise<{ next?: string; verified?: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
   const { next } = await searchParams
   const redirectTo = next?.startsWith("/") && !next.startsWith("//") ? next : "/"

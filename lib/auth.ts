@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth"
 import { nextCookies } from "better-auth/next-js"
 import { Pool } from "pg"
+import { sendVerificationEmail } from "@/lib/email"
 
 export function isAdminEmail(email: string) {
   const allowedEmails = (process.env.ADMIN_EMAILS ?? "")
@@ -49,6 +50,12 @@ export const auth = betterAuth({
   trustedOrigins: resolveTrustedOrigins(),
   emailAndPassword: {
     enabled: true,
+    requireEmailVerification: true,
+  },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }: { user: { email: string; name: string }; url: string }) => {
+      await sendVerificationEmail({ email: user.email, name: user.name, url })
+    },
   },
   ...(process.env.NODE_ENV === "development"
     ? {

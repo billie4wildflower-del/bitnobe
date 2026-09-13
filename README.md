@@ -36,9 +36,22 @@ ADMIN_MANAGER_EMAILS=manager@example.com
 ADMIN_ENGINEERING_EMAILS=engineering@example.com
 NEXT_PUBLIC_BUSINESS_MOBILE_APP_URL=https://your-app-release.example/mobile
 NEXT_PUBLIC_BUSINESS_DESKTOP_DOWNLOAD_URL=https://your-app-release.example/desktop
+EMAIL_FROM=BitNobe <verification@example.com>
+SMTP_HOST=smtp.example.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=verification@example.com
+SMTP_PASSWORD=replace-with-mailbox-app-password
+IMAP_HOST=imap.example.com
+IMAP_PORT=993
+IMAP_SECURE=true
+IMAP_USER=verification@example.com
+IMAP_PASSWORD=replace-with-mailbox-app-password
 ```
 
 `ADMIN_EMAILS` remains the legacy manager fallback. Support agents can view and respond to members; manager and engineering roles can perform account, security, balance, and transaction operations.
+
+New accounts require email verification. Configure the server-side SMTP mailbox values above in v0/Vercel; users only receive a verification link and never see or submit mailbox credentials. IMAP values are reserved for future inbound support-mail automation.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
