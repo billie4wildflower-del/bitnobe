@@ -178,9 +178,35 @@ async function ensureBankingFeaturesTables() {
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'declined')),
       background_check_status TEXT NOT NULL DEFAULT 'required' CHECK (background_check_status IN ('required', 'pending', 'passed', 'failed')),
       admin_note TEXT NOT NULL DEFAULT '',
+      legal_name TEXT NOT NULL DEFAULT '',
+      date_of_birth DATE,
+      residential_address TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      citizenship_status TEXT NOT NULL DEFAULT '',
+      identification_type TEXT NOT NULL DEFAULT '',
+      identification_last4 TEXT NOT NULL DEFAULT '',
+      employment_status TEXT NOT NULL DEFAULT '',
+      employer_name TEXT NOT NULL DEFAULT '',
+      employer_phone TEXT NOT NULL DEFAULT '',
+      annual_income INTEGER NOT NULL DEFAULT 0,
+      monthly_housing_payment INTEGER NOT NULL DEFAULT 0,
+      bank_account_type TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS legal_name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS residential_address TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS citizenship_status TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS identification_type TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS identification_last4 TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS employment_status TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS employer_name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS employer_phone TEXT NOT NULL DEFAULT '';
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS annual_income INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS monthly_housing_payment INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS bank_account_type TEXT NOT NULL DEFAULT '';
     CREATE TABLE IF NOT EXISTS wire_transfer (
       id SERIAL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
@@ -228,6 +254,23 @@ export type CardApplication = {
   backgroundCheckStatus: "required" | "pending" | "passed" | "failed"
   adminNote: string
   createdAt: Date
+  applicant?: CreditApplicationInput
+}
+
+export type CreditApplicationInput = {
+  legalName: string
+  dateOfBirth: string
+  residentialAddress: string
+  phone: string
+  citizenshipStatus: "us_citizen" | "permanent_resident" | "other"
+  identificationType: "ssn" | "itin"
+  identificationLast4: string
+  employmentStatus: "employed" | "self_employed" | "retired" | "unemployed"
+  employerName: string
+  employerPhone: string
+  annualIncomeCents: number
+  monthlyHousingPaymentCents: number
+  bankAccountType: "" | "checking" | "savings"
 }
 
 export async function getCardApplications() {
@@ -237,13 +280,29 @@ export async function getCardApplications() {
   return result.rows
 }
 
-export async function applyForCard(cardType: "debit" | "credit") {
+export async function applyForCard(cardType: "debit" | "credit", input?: CreditApplicationInput) {
   const sessionUser = await getSessionUser()
   if (cardType !== "debit" && cardType !== "credit") return { ok: false as const, error: "Choose a valid card type." }
+  if (cardType === "credit") {
+    if (!input) return { ok: false as const, error: "Complete the credit card application." }
+    if (!input.legalName.trim() || !input.dateOfBirth || !input.residentialAddress.trim() || !input.phone.trim()) return { ok: false as const, error: "Complete your legal name, date of birth, address, phone, and email details." }
+    const birthDate = new Date(`${input.dateOfBirth}T00:00:00Z`)
+    const adultDate = new Date()
+    adultDate.setUTCFullYear(adultDate.getUTCFullYear() - 18)
+    if (Number.isNaN(birthDate.getTime()) || birthDate > adultDate) return { ok: false as const, error: "Credit applicants must be at least 18 years old." }
+    if (!["us_citizen", "permanent_resident", "other"].includes(input.citizenshipStatus)) return { ok: false as const, error: "Choose a valid citizenship or residency status." }
+    if (!["ssn", "itin"].includes(input.identificationType) || !/^\d{4}$/.test(input.identificationLast4)) return { ok: false as const, error: "Enter the last four digits of your SSN or ITIN." }
+    if (!["employed", "self_employed", "retired", "unemployed"].includes(input.employmentStatus)) return { ok: false as const, error: "Choose a valid employment status." }
+    if (!Number.isInteger(input.annualIncomeCents) || input.annualIncomeCents < 0 || !Number.isInteger(input.monthlyHousingPaymentCents) || input.monthlyHousingPaymentCents < 0) return { ok: false as const, error: "Enter valid income and housing amounts." }
+  }
   await ensureBankingFeaturesTables()
   const existing = await pool.query(`SELECT id FROM card_application WHERE user_id = $1 AND card_type = $2 AND status IN ('pending', 'approved') LIMIT 1`, [sessionUser.id, cardType])
   if (existing.rowCount) return { ok: false as const, error: `You already have an active ${cardType} card application.` }
-  await pool.query(`INSERT INTO card_application (user_id, card_type, background_check_status) VALUES ($1, $2, $3)`, [sessionUser.id, cardType, cardType === "credit" ? "pending" : "required"])
+  if (cardType === "credit" && input) {
+    await pool.query(`INSERT INTO card_application (user_id, card_type, background_check_status, legal_name, date_of_birth, residential_address, phone, citizenship_status, identification_type, identification_last4, employment_status, employer_name, employer_phone, annual_income, monthly_housing_payment, bank_account_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`, [sessionUser.id, cardType, "pending", input.legalName.trim().slice(0, 120), input.dateOfBirth, input.residentialAddress.trim().slice(0, 300), input.phone.trim().slice(0, 40), input.citizenshipStatus, input.identificationType, input.identificationLast4, input.employmentStatus, input.employerName.trim().slice(0, 120), input.employerPhone.trim().slice(0, 40), input.annualIncomeCents, input.monthlyHousingPaymentCents, input.bankAccountType])
+  } else {
+    await pool.query(`INSERT INTO card_application (user_id, card_type, background_check_status) VALUES ($1, $2, $3)`, [sessionUser.id, cardType, "required"])
+  }
   revalidatePath("/")
   return { ok: true as const }
 }
@@ -290,12 +349,12 @@ export async function requestWireTransfer(input: { amountCents: number; benefici
   return { ok: true as const }
 }
 
-export type AdminCardApplication = CardApplication & { userId: string; userName: string; userEmail: string }
+export type AdminCardApplication = CardApplication & { userId: string; userName: string; userEmail: string; legalName: string; citizenshipStatus: string; identificationType: string; identificationLast4: string; employmentStatus: string; annualIncome: number; monthlyHousingPayment: number }
 
 export async function getAdminCardApplications() {
   await requireAdmin()
   await ensureBankingFeaturesTables()
-  const result = await pool.query<AdminCardApplication>(`SELECT ca.id, ca.user_id AS "userId", u.name AS "userName", u.email AS "userEmail", ca.card_type AS "cardType", ca.status, ca.background_check_status AS "backgroundCheckStatus", ca.admin_note AS "adminNote", ca.created_at AS "createdAt" FROM card_application ca JOIN "user" u ON u.id = ca.user_id ORDER BY ca.created_at DESC LIMIT 100`)
+  const result = await pool.query<AdminCardApplication>(`SELECT ca.id, ca.user_id AS "userId", u.name AS "userName", u.email AS "userEmail", ca.card_type AS "cardType", ca.status, ca.background_check_status AS "backgroundCheckStatus", ca.admin_note AS "adminNote", ca.created_at AS "createdAt", ca.legal_name AS "legalName", ca.citizenship_status AS "citizenshipStatus", ca.identification_type AS "identificationType", ca.identification_last4 AS "identificationLast4", ca.employment_status AS "employmentStatus", ca.annual_income AS "annualIncome", ca.monthly_housing_payment AS "monthlyHousingPayment" FROM card_application ca JOIN "user" u ON u.id = ca.user_id ORDER BY ca.created_at DESC LIMIT 100`)
   return result.rows
 }
 
