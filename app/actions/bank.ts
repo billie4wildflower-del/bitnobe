@@ -198,6 +198,7 @@ async function ensureBankingFeaturesTables() {
       monthly_housing_payment INTEGER NOT NULL DEFAULT 0,
       bank_account_type TEXT NOT NULL DEFAULT '',
       credit_limit INTEGER NOT NULL DEFAULT 0,
+      current_balance INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -215,6 +216,7 @@ async function ensureBankingFeaturesTables() {
     ALTER TABLE card_application ADD COLUMN IF NOT EXISTS monthly_housing_payment INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE card_application ADD COLUMN IF NOT EXISTS bank_account_type TEXT NOT NULL DEFAULT '';
     ALTER TABLE card_application ADD COLUMN IF NOT EXISTS credit_limit INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE card_application ADD COLUMN IF NOT EXISTS current_balance INTEGER NOT NULL DEFAULT 0;
     CREATE TABLE IF NOT EXISTS wire_transfer (
       id SERIAL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
@@ -262,6 +264,8 @@ export type CardApplication = {
   backgroundCheckStatus: "required" | "pending" | "passed" | "failed"
   adminNote: string
   creditLimit: number
+  currentBalance: number
+  availableCredit: number
   createdAt: Date
   applicant?: CreditApplicationInput
 }
@@ -285,7 +289,7 @@ export type CreditApplicationInput = {
 export async function getCardApplications() {
   const sessionUser = await getSessionUser()
   await ensureBankingFeaturesTables()
-  const result = await pool.query<CardApplication>(`SELECT id, card_type AS "cardType", status, background_check_status AS "backgroundCheckStatus", admin_note AS "adminNote", credit_limit AS "creditLimit", created_at AS "createdAt" FROM card_application WHERE user_id = $1 ORDER BY created_at DESC`, [sessionUser.id])
+  const result = await pool.query<CardApplication>(`SELECT id, card_type AS "cardType", status, background_check_status AS "backgroundCheckStatus", admin_note AS "adminNote", credit_limit AS "creditLimit", current_balance AS "currentBalance", GREATEST(credit_limit - current_balance, 0) AS "availableCredit", created_at AS "createdAt" FROM card_application WHERE user_id = $1 ORDER BY created_at DESC`, [sessionUser.id])
   return result.rows
 }
 
