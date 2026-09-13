@@ -27,9 +27,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} bg-background`}>
-      <body className="font-sans antialiased">
+      <body className="font-sans antialiased text-foreground">
         <PageLoader />
-        {children}
+        <div className="app-shell">{children}</div>
         <SiteFooter />
         <Toaster richColors position="top-right" />
         {process.env.NODE_ENV === "production" && <Analytics />}
